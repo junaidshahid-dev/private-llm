@@ -201,8 +201,14 @@ def main() -> int:
     print(f"model {lock['model']} @ {lock['revision'][:12]}")
     print("=" * 72)
 
+    # Upstream corrections, applied before the model is built and recorded in the manifest so a
+    # checkpoint always says which patches were in force when it was produced.
+    from training.patches import apply_all as apply_patches
+    prov_patches = apply_patches()
+
     mem = Mem()
     prov = provenance(cfg, lock)
+    prov["upstream_patches"] = prov_patches      # GATE 4: results depend on these being applied
     if not prov["cuda"]["available"]:
         print("\nNO CUDA. This script needs a GPU; the CPU path is scripts/smoke_test.py.")
         return 2

@@ -70,6 +70,30 @@ def main() -> int:
     check(f"transformers == {want}", transformers.__version__ == want,
           f"found {transformers.__version__}")
 
+    # Upstream patches must be in force here too — the smoke test is only meaningful if it
+    # exercises the same code the trainer will run. See training/patches.py.
+    from training.patches import apply_all as apply_patches
+    applied = apply_patches(verbose=False)
+    check("upstream patches applied", "deepseek_v3_moe_dtype" in applied, ", ".join(applied))
+
+    # Reproduce the mixed-dtype MoE condition directly: fp32 hidden states from an upcast
+    # layernorm, fp16 router weights from autocast. This is what killed the first GPU pilot.
+    from transformers.models.deepseek_v3 import modeling_deepseek_v3 as _dsv3
+    from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
+    _c = DeepseekV3Config(hidden_size=64, intermediate_size=128, moe_intermediate_size=32,
+                          num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=4,
+                          n_routed_experts=4, n_shared_experts=1, num_experts_per_tok=2,
+                          first_k_dense_replace=0, vocab_size=128)
+    torch.manual_seed(0)
+    try:
+        _out = _dsv3.DeepseekV3MoE(_c).moe(torch.randn(8, 64),
+                                           torch.randint(0, 4, (8, 2)),
+                                           torch.rand(8, 2, dtype=torch.float16))
+        check("MoE survives fp32 hidden / fp16 router", torch.isfinite(_out).all().item(),
+              "the exact case that failed on the T4")
+    except RuntimeError as e:
+        check("MoE survives fp32 hidden / fp16 router", False, str(e)[:80])
+
     # ---- 2. real architecture, meta device -----------------------------------
     # NATIVE implementation, no trust_remote_code. transformers ships deepseek_v3 since 4.49,
     # and the repo's own modeling_deepseek.py is stale: it calls DynamicCache.get_usable_length
