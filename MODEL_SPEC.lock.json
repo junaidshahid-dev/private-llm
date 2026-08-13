@@ -45,18 +45,33 @@
   },
   "framework_pins": {
     "transformers": "4.57.6",
-    "transformers_note": "5.x removes is_torch_fx_available; the remote code fails",
-    "torch": ">=2.4",
-    "peft": ">=0.11",
-    "bitsandbytes": ">=0.43",
-    "accelerate": ">=0.30",
-    "trl": ">=0.9",
-    "tiktoken": "REQUIRED \u2014 tokenizer is tiktoken-based, not sentencepiece",
-    "blobfile": "REQUIRED by tiktoken for this tokenizer"
+    "transformers_cap_reason": "5.0 stores DeepSeek-V3 MoE experts as 3D nn.Parameter; bitsandbytes quantises only nn.Linear, so 5.x leaves 92.3% unquantised (30.08GB vs 8.49GB). 4.57.6 is the newest 4.x.",
+    "peft": ">=0.20",
+    "accelerate": ">=1.14",
+    "datasets": ">=5.0",
+    "bitsandbytes": ">=0.50",
+    "trl": ">=1.10"
   },
   "verified": {
     "meta_device_build": true,
     "targets_confirmed_against_live_module_tree": true,
-    "verified_on": "transformers 4.57.6 / torch 2.10.0+cpu / no GPU"
+    "verified_on": "transformers 4.57.6 / torch 2.10.0+cpu / no GPU",
+    "quantisable_fraction_pct": 97.9,
+    "weights_vram_gb": 8.49,
+    "gates_passed_on_t4": [
+      "memory",
+      "loss",
+      "reload",
+      "provenance"
+    ],
+    "pilot_peak_vram_gb": 13.67,
+    "pilot_headroom_gb": 1.97,
+    "stack_tested": {
+      "transformers": "4.57.6",
+      "peft": "0.20.0",
+      "accelerate": "1.14.0",
+      "datasets": "5.0.1",
+      "torch": "2.13.0"
+    }
   }
 }

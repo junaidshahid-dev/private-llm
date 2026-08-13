@@ -26,13 +26,19 @@ import shutil
 import subprocess
 import sys
 
+# Everything floats to latest EXCEPT transformers, which is capped for a measured reason:
+# 5.0 moved DeepSeek-V3 MoE experts from ModuleList[Linear] to 3D nn.Parameter tensors, which
+# bitsandbytes cannot quantise. That takes the model from 8.49GB (97.9% quantisable) to 30.08GB
+# (7.7%) — it stops fitting any free GPU. 4.57.6 is the newest 4.x release; there is nothing
+# between it and 5.0. Verified working together: peft 0.20, accelerate 1.14, datasets 5.0.1,
+# torch 2.13. Re-check with scripts/check_quantizable.py after any upgrade.
 PINS = [
-    "transformers==4.57.6",     # 5.x breaks; see the lockfile for why
-    "peft>=0.11",
-    "bitsandbytes>=0.43",
-    "accelerate>=0.30",
-    "datasets>=2.19",
-    "trl>=0.9",
+    "transformers==4.57.6",     # CAP — see scripts/check_quantizable.py for the measurement
+    "peft>=0.20",
+    "bitsandbytes>=0.50",
+    "accelerate>=1.14",
+    "datasets>=5.0",
+    "trl>=1.10",
     "tiktoken",                 # the tokenizer is tiktoken-based, not sentencepiece
     "blobfile",
     "pyyaml",

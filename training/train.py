@@ -201,6 +201,21 @@ def main() -> int:
     print(f"model {lock['model']} @ {lock['revision'][:12]}")
     print("=" * 72)
 
+    # ---- transformers version ceiling ----------------------------------------
+    # Not a superstition pin. transformers 5.0 refactored DeepSeek-V3 MoE experts from
+    # ModuleList[Linear] into 3D nn.Parameter tensors. bitsandbytes quantises by replacing
+    # nn.Linear modules, so on 5.x only 7.7% of this model is reachable and the weights land at
+    # ~30GB instead of ~8.5GB. Nothing errors — it simply stops fitting on free hardware, which
+    # is a far more expensive way to find out. Run scripts/check_quantizable.py for the numbers.
+    import transformers as _tf
+    _major = int(_tf.__version__.split(".")[0])
+    if _major >= 5:
+        print(f"\nFAIL: transformers {_tf.__version__}. MoE experts are 3D parameters from 5.0")
+        print("      onward and bitsandbytes cannot quantise them: ~30GB of weights instead of")
+        print("      ~8.5GB. Install transformers==4.57.6 (the newest 4.x) and re-run.")
+        print("      Evidence: python scripts/check_quantizable.py")
+        return 1
+
     # Upstream corrections, applied before the model is built and recorded in the manifest so a
     # checkpoint always says which patches were in force when it was produced.
     from training.patches import apply_all as apply_patches

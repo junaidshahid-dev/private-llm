@@ -4,7 +4,8 @@ Fine-tune an open-weight MoE model on free cloud GPUs, evaluate it honestly agai
 benchmark, and serve it from weights you control. No training on the laptop, no dependency on a
 hosted API at inference.
 
-**Status:** validated end to end on CPU. The GPU pilot has not been run yet.
+**Status:** all four gates passed on a free Kaggle T4. The adapter trains, checkpoints, reloads
+cold in a fresh process, and generates.
 
 ---
 
@@ -49,6 +50,22 @@ transformers 4.44  no wheels for Python 3.13                   install fails
 `deepseek_v3` is supported **natively** since transformers 4.49, so the fix is to stop using the
 remote code: `trust_remote_code` is not needed for the model at all. (The tokenizer still needs
 it — it is a custom tiktoken tokenizer.)
+
+**2b. And "just upgrade" makes it worse in a way nothing reports as an error.**
+transformers 5.0 refactored DeepSeek-V3 MoE experts from `ModuleList[Linear]` into 3D
+`nn.Parameter` tensors. bitsandbytes quantises by *replacing `nn.Linear` modules*, so it cannot
+reach them. Measured on this model with `scripts/check_quantizable.py`:
+
+```
+transformers 4.57.6    97.9% in nn.Linear     8.49 GB    fits a T4
+transformers 5.15.0     7.7% in nn.Linear    30.08 GB    fits nothing free
+```
+
+Nothing raises. The module tree is correct and the LoRA targets still resolve — the model just
+silently stops fitting. `train.py` refuses to start on 5.x rather than let you discover this
+after a 32GB download. **4.57.6 is the newest 4.x release**, so this is the latest version that
+works, not an old one. Everything else runs current: peft 0.20, accelerate 1.14, datasets 5.0.1,
+torch 2.13.
 
 **3. Attention-only vs attention+MLP is a 41× difference.**
 At r=16: 7,105,536 trainable params vs 292,408,320. The MLP variant adapts 64 routed experts
@@ -104,12 +121,20 @@ Kaggle assigns either; both the bootstrap and the trainer stop rather than fail 
 The pilot exists to answer one question: *can the real model train, fit, checkpoint, resume and
 generate?* It is **not** a quality test.
 
-| gate | what it catches |
-|---|---|
-| 1 · memory | peak VRAM per phase — load, forward, backward, optimizer, save. 9GB of weights does not imply a 16GB fit. |
-| 2 · loss | NaN, inf, exactly-flat, or divergent. A falling loss over 10 steps proves the wiring, nothing more. |
-| 3 · reload | cold restart in a **fresh process**. In-process reloads share state and pass when a real restart would fail. |
-| 4 · provenance | model revision, dataset hash, benchmark hash, config, package versions, CUDA version, seeds — stamped into every checkpoint. |
+| gate | what it catches | result on a T4 |
+|---|---|---|
+| 1 · memory | peak VRAM per phase — load, forward, backward, optimizer, save | **13.67 GB peak, 1.97 GB spare** at 1024 tokens |
+| 2 · loss | NaN, inf, exactly-flat, or divergent | 5.3311 → 3.9875, finite, not flat |
+| 3 · reload | cold restart in a **fresh process** — in-process reloads share state and pass when a real restart would fail | loads cold in 496s, generates |
+| 4 · provenance | revision, dataset hash, benchmark hash, config, package versions, CUDA, seeds | stamped into every checkpoint |
+
+Throughput was **6.6 s/example** at 1024 tokens, so a 9-hour session fits roughly 4,800
+example-passes. Most of that is padding: `padding="max_length"` pads every example to 1024 while
+the seed data averages 107 content tokens. Dynamic padding is a large speedup available whenever
+the memory guarantee is worth trading.
+
+The pilot loss falling is **not** evidence of quality — 20 examples, cosine decay to zero across
+10 steps. It proves gradients reach the adapters and nothing NaNs.
 
 ---
 
@@ -140,7 +165,11 @@ produced under different hashes are not comparable, and the tooling refuses to p
 ## Honest limitations
 
 - **8K context.** Long documents go through RAG, not the prompt.
-- **The pilot has not run.** VRAM fit, throughput and real-data loss are unverified.
+- **The pilot proves plumbing, not learning.** It trained on 20 synthetic seed examples. No
+  claim about quality can be made until a real run is scored against the frozen benchmark.
+- **Pinned to transformers 4.57.6 indefinitely.** Not by preference — 5.x cannot quantise the
+  experts. If bitsandbytes gains 3D expert support this cap lifts; `check_quantizable.py` is the
+  test for that.
 - **35 → 25 benchmark items still need an LLM judge.** Judge-scored results are flagged so they
   can be excluded from headline numbers.
 - **No LICENSE file in the upstream repo.** MIT is declared in metadata. That is normally
