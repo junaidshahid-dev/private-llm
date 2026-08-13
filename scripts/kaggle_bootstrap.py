@@ -69,6 +69,11 @@ try:
         check("VRAM >= 15GB", total >= 15, f"{total:.1f} GB")
         check("bf16 support", torch.cuda.is_bf16_supported(),
               "expected False on T4 — config already uses fp16")
+        n = torch.cuda.device_count()
+        if n > 1:
+            print(f"[note] {n} GPUs visible — train.py pins itself to GPU 0. HF Trainer would")
+            print("       otherwise use DataParallel, which corrupts bitsandbytes quant_state")
+            print("       and fails as CUBLAS_STATUS_EXECUTION_FAILED inside q_proj.")
 except ImportError:
     check("torch importable", False, "no torch in this environment")
 

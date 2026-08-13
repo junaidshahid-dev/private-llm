@@ -28,6 +28,13 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
+# Same single-GPU pin as train.py, before torch is imported. Generation does not go through
+# Trainer, so DataParallel is not the risk here — but a 4-bit model loaded with device_map={"":0}
+# on a 2-GPU box invites the same class of device-mismatch confusion, and a verifier that runs
+# under different device conditions than the trainer is not verifying the same thing.
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 PROMPTS = [
     "Explain in one sentence why a scanner that produces false positives is worse than none.",
     "Write a Python function that returns the maximum drawdown of an equity curve.",

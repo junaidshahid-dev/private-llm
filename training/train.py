@@ -43,6 +43,31 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
+# ---------------------------------------------------------------------------------------------
+# SINGLE GPU, ENFORCED BEFORE TORCH IS IMPORTED.
+#
+# Kaggle hands out "T4 x2". HuggingFace Trainer sees device_count() > 1, sets n_gpu = 2, and
+# wraps the model in nn.DataParallel — which replicates the whole model onto each device on
+# every step. That is incompatible with bitsandbytes 4-bit: a Params4bit tensor carries a
+# quant_state (absmax, blocksize, code) that does not survive replication, so the replica falls
+# through to _dequant_linear_fallback and hands cuBLAS a malformed GEMM:
+#
+#     RuntimeError: CUDA error: CUBLAS_STATUS_EXECUTION_FAILED when calling cublasGemmEx(...)
+#
+# The error surfaces inside q_proj, which makes it look like a LoRA-target problem. It is not.
+#
+# DataParallel would be the wrong tool even if it worked: it replicates rather than shards, so
+# it gives no memory benefit, and the 4-bit model already fits on one T4. Real multi-GPU here
+# would mean device_map="auto" (model parallel) or DDP, neither of which we need.
+#
+# Set CUDA_VISIBLE_DEVICES yourself to override — e.g. "1" to use the second card instead.
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    _PINNED_GPU = True
+else:
+    _PINNED_GPU = False
+# ---------------------------------------------------------------------------------------------
+
 GATES: dict[str, dict] = {}
 
 
@@ -183,6 +208,11 @@ def main() -> int:
         return 2
     print(f"device {prov['cuda']['device']}  "
           f"{prov['cuda']['total_memory_gb']}GB  capability {prov['cuda']['capability']}")
+    if _PINNED_GPU:
+        print("  pinned to GPU 0 — Trainer wraps multi-GPU in DataParallel, which corrupts")
+        print("  bitsandbytes quant_state. Set CUDA_VISIBLE_DEVICES yourself to override.")
+    if torch.cuda.device_count() > 1:
+        print(f"  WARNING: {torch.cuda.device_count()} GPUs still visible — DataParallel risk")
     cap = prov["cuda"]["capability"]
     if cap and cap[0] < 8:
         print("  note: pre-Ampere — no bf16, no FlashAttention-2. fp16 compute, as configured.")
