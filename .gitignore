@@ -34,9 +34,22 @@ data/cleaned/
 !data/test/test.jsonl
 !data/processed/manifest.json
 
-# Evaluation OUTPUT is per-run; the frozen benchmark itself is committed.
+# Evaluation OUTPUT is per-run and stays local...
 evaluation/results/*/
 !evaluation/results/.gitkeep
+
+# ...EXCEPT the base measurement, which is committed deliberately.
+#
+# Base scores depend only on (model revision, decode settings, benchmark hash). None of those
+# change between experiments, so this is a constant that costs ~45 minutes of GPU time to
+# reproduce. Kaggle wipes local storage when a session ends. Committing it means every future
+# comparison has its baseline immediately, and a reviewer can see exactly what the untuned model
+# scored rather than taking a delta on trust.
+!evaluation/results/base/
+!evaluation/results/base/results.json
+
+# Comparison reports are small, and they are the actual findings.
+!evaluation/results/compare_*.json
 
 # OS noise
 .DS_Store
