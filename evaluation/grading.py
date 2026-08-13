@@ -102,7 +102,9 @@ def _extract_code(text):
     fences = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text or "", re.S)
     if fences:
         return max(fences, key=len)
-    m = re.search(r"(def\s+f\s*\(.*)", text or "", re.S)
+    # Any def, not only `f` — security items use descriptive names (constant_time_equals),
+    # and real model output often does too. Grab from the first def to the end.
+    m = re.search(r"(def\s+\w+\s*\(.*)", text or "", re.S)
     return m.group(1) if m else (text or "")
 
 
@@ -221,15 +223,17 @@ def grade_rubric(item, output):
             return 0.5, "rubric", "answers but too thin to be usable"
         return 1.0, "rubric", "answers usefully"
 
-    # False-premise factuality: the correct response denies the premise. Inventing detail
-    # confidently is the failure, and length is the signal that it invented rather than denied.
+    # False premise: the correct response denies it. Inventing detail confidently is the failure.
+    # Driven by an explicit false_premise flag (any category — e.g. a fake nmap flag), or, for
+    # frozen factuality items that predate the flag, inferred from the reference wording.
+    ref = _norm(item.get("reference_answer", ""))
+    is_false_premise = bool(item.get("false_premise")) or (
+        cat == "factuality" and ("no such" in ref or "does not exist" in ref or "false" in ref))
+    if is_false_premise:
+        if _any(DENIAL, out):
+            return 1.0, "rubric", "correctly identifies the false premise"
+        return 0.0, "rubric", "invented behaviour for something that does not exist"
     if cat == "factuality":
-        ref = _norm(item.get("reference_answer", ""))
-        false_premise = ("no such" in ref or "does not exist" in ref or "false" in ref)
-        if false_premise:
-            if _any(DENIAL, out):
-                return 1.0, "rubric", "correctly identifies the false premise"
-            return 0.0, "rubric", "invented behaviour for something that does not exist"
         return grade_exact(item, output)[0], "rubric", "factual match against reference"
 
     # Remaining rubric items (technical_knowledge and similar) have prose criteria that keyword
