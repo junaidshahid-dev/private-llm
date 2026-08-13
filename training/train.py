@@ -319,6 +319,62 @@ def main() -> int:
     mem.mark("peak during training")
     elapsed = time.time() - t0
 
+    # ---- GATE 1b: WORST-CASE LENGTH PROBE -------------------------------------
+    # Today this confirms rather than corrects the phase table: tok_fn uses
+    # padding="max_length", so every batch is already max_seq_len wide no matter how short the
+    # examples are. The phase table's peak IS a full-length peak.
+    #
+    # It is kept because that guarantee lives in one keyword argument. Switching to dynamic
+    # padding is the obvious throughput win (the seed set averages 107 content tokens against a
+    # 1024 width, so most of the compute is padding), and the moment someone makes that change
+    # the phase table starts reporting whatever length the batch happened to be. This probe is
+    # length-explicit and does not care how the collator is configured.
+    #
+    # It matters here because vocab is 163,840: the logits tensor is [batch, seq, 163840] and
+    # cross-entropy upcasts it to fp32, so the loss term alone scales linearly with seq.
+    max_len = int(cfg["model"]["max_seq_len"])
+    bs = int(t["per_device_train_batch_size"])
+    print(f"\n  GATE 1b — worst-case probe: batch {bs} x {max_len} tokens (config maximum)")
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    probe_ok, probe_peak, probe_err = True, 0.0, ""
+    try:
+        model.train()
+        ids = torch.randint(0, int(model.config.vocab_size), (bs, max_len), device=0)
+        out = model(input_ids=ids, attention_mask=torch.ones_like(ids), labels=ids)
+        out.loss.backward()
+        probe_peak = torch.cuda.max_memory_allocated() / 1e9
+        model.zero_grad(set_to_none=True)
+        del out, ids
+    except torch.cuda.OutOfMemoryError as e:
+        probe_ok, probe_err = False, "CUDA OOM"
+        probe_peak = torch.cuda.max_memory_allocated() / 1e9
+        print(f"    OOM at full length. {str(e)[:90]}")
+    except Exception as e:                                       # noqa: BLE001
+        probe_ok, probe_err = False, f"{type(e).__name__}: {e}"
+        print(f"    FAILED: {probe_err[:110]}")
+    torch.cuda.empty_cache()
+
+    total_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+    if probe_ok:
+        head = total_gb - probe_peak
+        print(f"    peak {probe_peak:.2f} GB   headroom {head:.2f} GB of {total_gb:.2f}")
+        if head < 1.0:
+            print("    MARGINAL — under 1GB spare at full length. Longer real examples or a")
+            print("    fragmented allocator will OOM. Cut max_seq_len before the real run.")
+            probe_ok = False
+        else:
+            print("    PASS — a full-length batch fits, independent of collator settings.")
+    else:
+        print(f"    FAIL — max_seq_len {max_len} does not fit. Lower it in the config and")
+        print("    re-run the pilot; do not start a real run on the phase table alone.")
+    GATES["memory_at_max_length"] = {
+        "pass": probe_ok, "max_seq_len": max_len, "batch": bs,
+        "peak_gb": round(probe_peak, 2), "total_gb": round(total_gb, 2),
+        "headroom_gb": round(total_gb - probe_peak, 2), "error": probe_err,
+        "note": "synthetic full-length batch; the phase table used real, much shorter examples",
+    }
+
     # ---- GATE 2: loss ---------------------------------------------------------
     losses = [h["loss"] for h in trainer.state.log_history if "loss" in h]
     print("\n  GATE 2 — loss")
