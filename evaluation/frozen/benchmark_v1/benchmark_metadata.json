@@ -1,0 +1,32 @@
+{
+  "built_at": "2026-08-13T07:19:30+00:00",
+  "total": 120,
+  "by_category": {
+    "coding": 20,
+    "mathematics": 15,
+    "instruction_following": 10,
+    "factuality": 10,
+    "tool_calling": 10,
+    "behavior": 10,
+    "reasoning": 15,
+    "technical_knowledge": 10,
+    "trading_research": 10,
+    "long_context_rag": 10
+  },
+  "by_grading": {
+    "code_test": 20,
+    "exact": 22,
+    "structural": 17,
+    "rubric": 36,
+    "judge": 25
+  },
+  "by_layer": {
+    "general": 100,
+    "domain": 20
+  },
+  "by_difficulty": {
+    "easy": 36,
+    "medium": 60,
+    "hard": 24
+  }
+}

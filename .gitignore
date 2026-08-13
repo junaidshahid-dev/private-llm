@@ -1,0 +1,43 @@
+# Weights, checkpoints and adapters — never in git.
+# A single checkpoint is larger than this entire repository.
+models/
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+
+# Local environment
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Hugging Face cache (32GB of weights lives here)
+.cache/
+hf_cache/
+
+# Secrets. There should never be a key in this repo, but do not rely on that.
+.env
+*.key
+*.pem
+kaggle.json
+
+# Data: raw and intermediate stay local; the SPLITS are committed because the
+# dataset hash in every run manifest refers to them, and a manifest pointing at
+# a file nobody else has is not reproducibility.
+data/raw/
+data/cleaned/
+!data/train/train.jsonl
+!data/validation/validation.jsonl
+!data/test/test.jsonl
+!data/processed/manifest.json
+
+# Evaluation OUTPUT is per-run; the frozen benchmark itself is committed.
+evaluation/results/*/
+!evaluation/results/.gitkeep
+
+# OS noise
+.DS_Store
+Thumbs.db

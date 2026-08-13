@@ -1,0 +1,27 @@
+{
+  "built_at": "2026-08-13T07:03:07+00:00",
+  "dataset_version": "646416e92fed7a27",
+  "seed": 20260813,
+  "counts": {
+    "train": 57,
+    "validation": 3,
+    "test": 4
+  },
+  "raw_examples": 68,
+  "dropped": {
+    "dropped: prompt too short": 1,
+    "dropped: answer length": 1,
+    "dropped: unrecognised shape": 1,
+    "dropped: duplicate": 1
+  },
+  "tokenizer_used": true,
+  "max_tokens": 1024,
+  "token_stats": {
+    "mean": 107.1875,
+    "max": 161,
+    "min": 75
+  },
+  "sources": {
+    "seed.jsonl": 64
+  }
+}

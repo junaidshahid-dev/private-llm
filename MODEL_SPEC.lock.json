@@ -1,0 +1,62 @@
+{
+  "frozen_at": "2026-08-13T07:09:05+00:00",
+  "model": "moonshotai/Moonlight-16B-A3B-Instruct",
+  "revision": "4e735b07a89f73647dfab71ab91b840f362ede5b",
+  "revision_note": "pin this; do not use 'main'",
+  "license_declared": "mit",
+  "license_file_present": false,
+  "architecture": [
+    "DeepseekV3ForCausalLM"
+  ],
+  "model_type": "deepseek_v3",
+  "parameters": 15960111936,
+  "context_length": 8192,
+  "bytes_bf16": 31920223872,
+  "bytes_4bit_est": 7980055968.0,
+  "trust_remote_code_required": true,
+  "remote_code_files": [
+    "configuration_deepseek.py",
+    "modeling_deepseek.py",
+    "tokenization_moonshot.py"
+  ],
+  "tokenizer_class": "TikTokenTokenizer",
+  "lora_targets_validated": [
+    "q_proj",
+    "kv_a_proj_with_mqa",
+    "kv_b_proj",
+    "o_proj"
+  ],
+  "lora_targets_rejected": {
+    "llama_default": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj"
+    ],
+    "absent_here": [
+      "k_proj",
+      "v_proj"
+    ]
+  },
+  "quantization": {
+    "method": "bitsandbytes nf4",
+    "double_quant": true,
+    "compute_dtype": "float16 (T4 has no bf16)"
+  },
+  "framework_pins": {
+    "transformers": "4.57.6",
+    "transformers_note": "5.x removes is_torch_fx_available; the remote code fails",
+    "torch": ">=2.4",
+    "peft": ">=0.11",
+    "bitsandbytes": ">=0.43",
+    "accelerate": ">=0.30",
+    "trl": ">=0.9",
+    "tiktoken": "REQUIRED \u2014 tokenizer is tiktoken-based, not sentencepiece",
+    "blobfile": "REQUIRED by tiktoken for this tokenizer"
+  },
+  "verified": {
+    "meta_device_build": true,
+    "targets_confirmed_against_live_module_tree": true,
+    "verified_on": "transformers 4.57.6 / torch 2.10.0+cpu / no GPU"
+  }
+}

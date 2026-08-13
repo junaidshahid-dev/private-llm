@@ -1,0 +1,149 @@
+# A private, fine-tunable LLM — Moonlight-16B-A3B + QLoRA
+
+Fine-tune an open-weight MoE model on free cloud GPUs, evaluate it honestly against a frozen
+benchmark, and serve it from weights you control. No training on the laptop, no dependency on a
+hosted API at inference.
+
+**Status:** validated end to end on CPU. The GPU pilot has not been run yet.
+
+---
+
+## What was selected, and why
+
+| | |
+|---|---|
+| model | `moonshotai/Moonlight-16B-A3B-Instruct` |
+| revision | `4e735b07a89f73647dfab71ab91b840f362ede5b` — pinned, never `main` |
+| size | 15,960,111,936 params · 16B total / 3B active MoE |
+| context | **8192** tokens |
+| licence | MIT (declared in repo metadata; note there is **no LICENSE file** in the repo) |
+| architecture | DeepSeek-V3, Multi-head Latent Attention, 64 routed + 2 shared experts |
+
+**Why not Kimi K2.** K2 is 1T parameters. At 4-bit its weights are ~560GB, and MoE experts must
+stay resident during training, so QLoRA needs 8×H100 minimum — about **$23/hour, or $555 for a
+single 24-hour run**. Moonlight QLoRA runs on one free T4. That is the entire decision.
+
+**What fine-tuning will and will not do.** LoRA adapts *behaviour* — format, register, refusal
+patterns, tool-call style, domain vocabulary. It does not make a 16B model reason like a 1T one.
+If you want K2-level capability you need K2 weights. Everything here is about control, not IQ.
+
+---
+
+## Three findings that would each have cost a GPU session
+
+**1. The standard LoRA recipe silently fails on this model.**
+`[q_proj, k_proj, v_proj, o_proj]` is the Llama default. This model uses Multi-head Latent
+Attention and has **no `k_proj` and no `v_proj`**. The real targets are
+`[q_proj, kv_a_proj_with_mqa, kv_b_proj, o_proj]`, verified against both the tensor index and a
+live module tree. `scripts/freeze_spec.py` exits non-zero if a configured target does not exist.
+
+**2. The model's own `modeling_deepseek.py` is broken on every installable transformers.**
+
+```
+transformers 5.15  ImportError: is_torch_fx_available          build fails
+transformers 4.57  DynamicCache.get_usable_length missing      forward fails
+transformers 4.48  from_legacy_cache assertion                 forward fails
+transformers 4.44  no wheels for Python 3.13                   install fails
+```
+
+`deepseek_v3` is supported **natively** since transformers 4.49, so the fix is to stop using the
+remote code: `trust_remote_code` is not needed for the model at all. (The tokenizer still needs
+it — it is a custom tiktoken tokenizer.)
+
+**3. Attention-only vs attention+MLP is a 41× difference.**
+At r=16: 7,105,536 trainable params vs 292,408,320. The MLP variant adapts 64 routed experts
+across 26 layers, each adapter seeing only its routed fraction of tokens. Attention-only unless
+the evaluation shows it underfitting.
+
+---
+
+## Repository
+
+```
+configs/moonlight_qlora.yaml     every value annotated with the constraint that set it
+MODEL_SPEC.lock.json             pinned revision, licence, framework pins, verification record
+scripts/
+  freeze_spec.py                 pin + derive module tree + validate LoRA targets (~2MB download)
+  smoke_test.py                  full training path on CPU: attach, fwd/bwd, save, reload
+  kaggle_bootstrap.py            pre-flight; refuses a P100 before anything expensive
+  verify_checkpoint.py           GATE 3 — cold reload in a fresh process, then generate
+training/
+  prepare_dataset.py             raw -> clean -> dedup -> filter -> tokenize -> split
+  train.py                       QLoRA with four gates and auto-resume
+evaluation/
+  build_benchmark.py             builds and freezes the benchmark
+  frozen/benchmark_v1/           120 items — NEVER trained against
+  development/domain_expansion/  new cases go here instead
+models/                          experiment-NNN/ per run; the base is never written to
+```
+
+---
+
+## Running it
+
+Kaggle: verify your phone (gates GPU **and** internet), then Accelerator → **GPU T4 x2**,
+Internet → On.
+
+```bash
+python scripts/kaggle_bootstrap.py       # pre-flight; stops on a P100
+python scripts/smoke_test.py             # ~1 min, no download
+python training/train.py --pilot         # ~32GB download, then 10 steps + gates
+python scripts/verify_checkpoint.py --checkpoint models/experiment-001/final
+```
+
+The bf16 download is ~32GB even though it loads as ~8.5GB in VRAM — bitsandbytes quantises after
+fetching. Kaggle kills sessions at 9 hours, so do not start it and walk away.
+
+**T4, not P100.** bitsandbytes 4-bit needs compute capability ≥ 7.5. T4 is 7.5, P100 is 6.0.
+Kaggle assigns either; both the bootstrap and the trainer stop rather than fail confusingly.
+
+---
+
+## The four gates
+
+The pilot exists to answer one question: *can the real model train, fit, checkpoint, resume and
+generate?* It is **not** a quality test.
+
+| gate | what it catches |
+|---|---|
+| 1 · memory | peak VRAM per phase — load, forward, backward, optimizer, save. 9GB of weights does not imply a 16GB fit. |
+| 2 · loss | NaN, inf, exactly-flat, or divergent. A falling loss over 10 steps proves the wiring, nothing more. |
+| 3 · reload | cold restart in a **fresh process**. In-process reloads share state and pass when a real restart would fail. |
+| 4 · provenance | model revision, dataset hash, benchmark hash, config, package versions, CUDA version, seeds — stamped into every checkpoint. |
+
+---
+
+## Evaluation
+
+120 items, frozen at `sha256 c370f8d0...`, **95 of them deterministically graded**.
+
+```
+coding 20 (real assertions)   reasoning 15        mathematics 15 (exact)
+instruction following 10      technical 10        factuality 10 (false premises)
+tool calling 10 (structural)  behaviour 10        trading/research 10
+long-context/RAG 10 (synthetic contexts, exact ground truth, sized to 84% of the 8K window)
+```
+
+**Refusal is scored in both directions.** Six items are legitimate requests a badly-tuned model
+wrongly declines; four should be declined. A model that answers everything scores ~50% — exactly
+the same as one that refuses everything. Maximum score needs the boundary *and* a useful path
+at it.
+
+**Hallucination is tested with false premises** — a module, a flag and a paper that do not exist.
+Correct behaviour is saying so.
+
+`build_benchmark.py --verify` recomputes the hash and fails if the benchmark changed. Results
+produced under different hashes are not comparable, and the tooling refuses to pretend otherwise.
+
+---
+
+## Honest limitations
+
+- **8K context.** Long documents go through RAG, not the prompt.
+- **The pilot has not run.** VRAM fit, throughput and real-data loss are unverified.
+- **35 → 25 benchmark items still need an LLM judge.** Judge-scored results are flagged so they
+  can be excluded from headline numbers.
+- **No LICENSE file in the upstream repo.** MIT is declared in metadata. That is normally
+  accepted, but "declared MIT" is the accurate phrasing, not "ships an MIT licence".
+- **The tokenizer requires `trust_remote_code`**, which executes code from the model repo. The
+  model itself no longer does.
