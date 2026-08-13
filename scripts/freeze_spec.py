@@ -30,7 +30,8 @@ import urllib.request
 from collections import Counter
 from datetime import datetime, timezone
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
+                              line_buffering=True)
 
 MODEL = "moonshotai/Moonlight-16B-A3B-Instruct"
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -29,7 +29,8 @@ import json
 import os
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
+                              line_buffering=True)
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 REGRESSION_THRESHOLD = 0.05      # category mean drop that counts as a blocker

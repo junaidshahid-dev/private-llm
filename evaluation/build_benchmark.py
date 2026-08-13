@@ -40,7 +40,8 @@ import os
 import sys
 from datetime import datetime, timezone
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
+                              line_buffering=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 # frozen/ is never trained against and never edited after the first run.
 # development/ is where new domain cases go, so the frozen set stays uncontaminated.
