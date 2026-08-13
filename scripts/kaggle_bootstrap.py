@@ -82,9 +82,38 @@ except Exception as e:                                       # noqa: BLE001
           f"{type(e).__name__} — switch Internet ON (needs phone verification)")
 
 # ---- disk -------------------------------------------------------------------
-free = shutil.disk_usage("/kaggle/working" if os.path.isdir("/kaggle/working") else ".").free
-check("free disk >= 40GB", free / 1e9 >= 40,
-      f"{free/1e9:.0f} GB free — the bf16 download alone is ~32GB")
+# /kaggle/working is capped around 20GB because it is persisted as notebook OUTPUT. The model
+# download does NOT go there — it goes to the Hugging Face cache. So measure every mount and
+# put HF_HOME on whichever one can actually hold ~32GB of bf16 shards.
+CANDIDATES = ["/kaggle/temp", "/tmp", "/root", "/kaggle/working", "."]
+print("\ndisk by mount:")
+best, best_free = None, 0
+for p in CANDIDATES:
+    if not os.path.isdir(p):
+        continue
+    try:
+        u = shutil.disk_usage(p)
+    except OSError:
+        continue
+    print(f"    {p:18} {u.free/1e9:6.1f} GB free of {u.total/1e9:6.1f} GB")
+    # /kaggle/working is output-capped regardless of what the filesystem reports
+    usable = u.free if p != "/kaggle/working" else min(u.free, 20e9)
+    if usable > best_free:
+        best, best_free = p, usable
+
+check("a mount with >= 40GB free exists", best_free / 1e9 >= 40,
+      f"best: {best} with {best_free/1e9:.0f} GB — need ~32GB for the bf16 shards")
+
+if best and best_free / 1e9 >= 40:
+    cache = os.path.join(best, "hf_cache")
+    os.makedirs(cache, exist_ok=True)
+    os.environ["HF_HOME"] = cache
+    os.environ["HF_HUB_CACHE"] = cache
+    with open("/kaggle/working/.hf_env", "w") as f:
+        f.write(f"export HF_HOME={cache}\nexport HF_HUB_CACHE={cache}\n")
+    print(f"    -> HF_HOME set to {cache}")
+    print(f"       In LATER cells this must be set again, because each ! cell is a new shell:")
+    print(f"       import os; os.environ['HF_HOME']='{cache}'")
 
 # ---- repo -------------------------------------------------------------------
 lock_p = "MODEL_SPEC.lock.json"
