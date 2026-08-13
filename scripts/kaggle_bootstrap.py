@@ -132,6 +132,27 @@ if fail:
     print("Fix these before installing anything. Nothing below is worth the session time.")
     sys.exit(1)
 
+# ---- conflicting preinstalled packages --------------------------------------
+# Kaggle ships torchao 0.10.0. peft's is_torchao_available() RAISES ImportError when it finds a
+# version below 0.16 rather than returning False, so LoRA attach dies inside _create_new_module
+# even though we never use torchao — quantisation here is bitsandbytes.
+#
+# Removing it is safer than upgrading: torchao pins torch versions, and torch is the one thing
+# on this image we do not want to disturb.
+try:
+    import importlib.metadata as _md
+    tv = _md.version("torchao")
+    major_minor = tuple(int(x) for x in tv.split(".")[:2])
+    if major_minor < (0, 16):
+        print(f"\nremoving torchao {tv} — peft raises on versions below 0.16, and nothing here")
+        print("uses it (quantisation is bitsandbytes)")
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"],
+                       check=False)
+    else:
+        print(f"\ntorchao {tv} — new enough, leaving it")
+except Exception:                                            # noqa: BLE001
+    pass                                                     # not installed: nothing to do
+
 # ---- install ----------------------------------------------------------------
 print("\ninstalling pinned versions (transformers is deliberately NOT latest)...")
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", *PINS], check=True)
