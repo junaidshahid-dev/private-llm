@@ -160,6 +160,48 @@ Correct behaviour is saying so.
 `build_benchmark.py --verify` recomputes the hash and fails if the benchmark changed. Results
 produced under different hashes are not comparable, and the tooling refuses to pretend otherwise.
 
+### Running an evaluation
+
+```bash
+python evaluation/run_benchmark.py --base                              # once, then reused
+python evaluation/run_benchmark.py --adapter models/experiment-004/final
+python evaluation/compare.py --base evaluation/results/base \
+                             --candidate evaluation/results/experiment-004
+```
+
+Base scores depend only on (revision, decode settings, benchmark hash), so they are measured
+once and reused — re-running an 8-minute load to reproduce a constant wastes a quarter of a
+Kaggle session. The cost of separate runs is drift, so every condition that could differ is
+recorded and **compare.py exits non-zero rather than compare two runs measured differently**.
+Decoding is greedy: a benchmark that samples cannot attribute a change to the model.
+
+### Three tiers, not two
+
+| tier | n | what it means |
+|---|---|---|
+| objective | 59 | a value matches, an assertion executes, a structure parses — reproducible to the character |
+| rubric | 36 | keyword heuristics against prose criteria; directionally sound, noisy per item |
+| judge | 25 | needs an LLM judge; **unscored** unless one is explicitly configured |
+
+The objective row is the headline. Blending the three into one number lets rubric noise borrow
+the credibility of executed assertions.
+
+### Regression detection
+
+A net gain is not an improvement. The report always prints improved / regressed / unchanged
+together, flags any category dropping past 5%, and refuses a clean verdict when one has:
+
+```
+MIXED — objective +0.084, but 2 categories regressed past 5%:
+    factuality  -0.130
+    mathematics -0.050
+A net gain with category regressions is a trade. Decide whether you want it.
+```
+
+`evaluation/test_harness.py` verifies all of this on CPU by planting a regression and confirming
+the report catches it. A harness that cannot catch a deliberate regression cannot be trusted
+with a real one.
+
 ---
 
 ## Honest limitations
