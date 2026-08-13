@@ -81,6 +81,8 @@ def main() -> int:
     g.add_argument("--adapter", help="path to an adapter directory")
     ap.add_argument("--out", default=None, help="results dir; derived from the model if unset")
     ap.add_argument("--limit", type=int, default=0, help="first N items (smoke testing only)")
+    ap.add_argument("--category", default=None,
+                    help="run only one category (e.g. factuality) — cheap re-test of a subset")
     ap.add_argument("--max-new-tokens", type=int, default=DECODE["max_new_tokens"])
     args = ap.parse_args()
 
@@ -98,6 +100,11 @@ def main() -> int:
 
     lock = json.load(open(os.path.join(HERE, "MODEL_SPEC.lock.json"), encoding="utf-8"))
     items, block = load_benchmark()
+    if args.category:
+        items = [i for i in items if i["category"] == args.category]
+        if not items:
+            print(f"no items in category {args.category!r}")
+            return 1
     if args.limit:
         items = items[:args.limit]
 

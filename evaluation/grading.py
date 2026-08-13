@@ -193,7 +193,10 @@ def grade_structural(item, output):
         except Exception:                                     # noqa: BLE001
             return 0.0, "structural", "not valid JSON"
 
-    return 0.0, "structural", "no structural rule matched — treat as unscored"
+    # No rule matched — the item is under-specified for structural grading (e.g. tool_010, which
+    # is really a knowledge question). Return None so it is UNSCORED, not a 0 that silently drags
+    # the category down. A real "no tool call emitted" still scores 0 above, in the tool branch.
+    return None, "structural", "no structural rule matched — unscored, not a failure"
 
 
 # --- rubric ----------------------------------------------------------------------------------
