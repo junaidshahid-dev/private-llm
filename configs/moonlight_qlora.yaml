@@ -3,6 +3,10 @@
 # Every value here is chosen for a constraint, not copied from a tutorial. The comments say
 # which constraint, so you know what is safe to change when you move to a bigger GPU.
 
+# Global seed for data shuffling, model init and the trainer. Pinned explicitly rather than
+# defaulted in code, so every run manifest records the exact value that produced the adapter.
+seed: 20260813
+
 model:
   # 16B total / 3B active MoE, DeepSeek-V3 architecture, plain MIT licence.
   name: moonshotai/Moonlight-16B-A3B-Instruct

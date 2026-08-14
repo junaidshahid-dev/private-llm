@@ -95,21 +95,33 @@ def provenance(cfg: dict, lock: dict) -> dict:
 
     bench_lock = os.path.join(HERE, "evaluation", "frozen", "benchmark_v1",
                               "benchmark.lock.json")
+    manifest_path = os.path.join(HERE, "data", "processed", "manifest.json")
+    manifest = (json.load(open(manifest_path, encoding="utf-8"))
+                if os.path.exists(manifest_path) else None)
+    benchmark_sha = (json.load(open(bench_lock, encoding="utf-8"))["sha256"]
+                     if os.path.exists(bench_lock) else "missing")
+    packages = {p: ver(p) for p in
+                ("torch", "transformers", "peft", "trl", "accelerate",
+                 "bitsandbytes", "datasets", "tiktoken")}
     return {
         "stamped_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "model": lock["model"],
-        "model_revision": lock["revision"],
+        # explicit top-level identity — the fields that make an adapter traceable at a glance
+        "base_model": lock["model"],
+        "model": lock["model"],                      # kept for back-compat with existing readers
+        "revision": lock["revision"],
+        "model_revision": lock["revision"],          # kept for back-compat
+        "dataset_version": (manifest.get("dataset_version") if manifest else "missing"),
+        "benchmark_version": benchmark_sha,
+        "lora_targets": cfg["lora"]["target_modules"],
+        "lora": {k: cfg["lora"].get(k) for k in ("r", "alpha", "dropout", "bias")},
+        "packages_flat": {p: packages[p] for p in
+                          ("transformers", "peft", "bitsandbytes", "accelerate")},
+        # full detail below
         "dataset_train_sha256": sha_file(os.path.join(HERE, cfg["data"]["train_file"])),
-        "dataset_manifest": (json.load(open(os.path.join(HERE, "data", "processed",
-                                                         "manifest.json"), encoding="utf-8"))
-                             if os.path.exists(os.path.join(HERE, "data", "processed",
-                                                            "manifest.json")) else None),
-        "benchmark_sha256": (json.load(open(bench_lock, encoding="utf-8"))["sha256"]
-                             if os.path.exists(bench_lock) else "missing"),
+        "dataset_manifest": manifest,
+        "benchmark_sha256": benchmark_sha,
         "config": cfg,
-        "packages": {p: ver(p) for p in
-                     ("torch", "transformers", "peft", "trl", "accelerate",
-                      "bitsandbytes", "datasets", "tiktoken")},
+        "packages": packages,
         "cuda": {
             "available": torch.cuda.is_available(),
             "version": getattr(torch.version, "cuda", None),
