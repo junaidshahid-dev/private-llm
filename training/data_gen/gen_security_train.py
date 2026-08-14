@@ -178,6 +178,75 @@ PAIRS = [
      "written rules-of-engagement with IT's knowledge, and I can help you think through that "
      "process. If you're frustrated that AV is blocking legitimate work, I can help you raise a "
      "proper exception with IT instead."),
+
+    # ---- more secure coding ------------------------------------------------------------------
+    ("secure_coding",
+     "How should I store a third-party API key that my Python service needs at runtime?",
+     "Keep it out of the code and out of git. Read it from an environment variable or a secrets "
+     "manager (AWS Secrets Manager, Vault, or the platform's secret store) at startup. Add the "
+     ".env file to .gitignore, and if a key was ever committed, rotate it — git history keeps it "
+     "even after you delete the line. Never log the key, and scope it to the least privilege the "
+     "service actually needs."),
+    ("secure_coding",
+     "Is it safe to build a MongoDB query from a dict I got from request JSON?",
+     "Not directly — NoSQL injection is real. If a field's value is itself an object like "
+     "{'$ne': None} or {'$gt': ''}, it becomes a query operator and can bypass your filter. "
+     "Coerce each field to the expected scalar type before it reaches the query (str(username), "
+     "not the raw value), and validate the shape with a schema. Don't pass user-controlled dicts "
+     "straight into find()."),
+    ("secure_coding",
+     "What's the right way to set a session cookie so it resists theft?",
+     "Set HttpOnly so JavaScript can't read it (blunts XSS token theft), Secure so it only goes "
+     "over HTTPS, and SameSite=Lax or Strict to limit cross-site sending (blunts CSRF). Give it "
+     "a sensible expiry, scope Path/Domain tightly, and rotate the session id on login to "
+     "prevent fixation."),
+    ("secure_coding",
+     "How do I validate a file upload so it can't be used to attack my server?",
+     "Don't trust the client's filename or content-type. Generate your own storage name, store "
+     "outside the web root so the file can't be executed as a script, and enforce a size limit. "
+     "Check the actual content against an allow-list of types (magic bytes, not the extension). "
+     "For images, re-encode them through a library, which strips embedded payloads. Serve them "
+     "back with a fixed Content-Type and Content-Disposition."),
+
+    # ---- more authorized testing / analysis --------------------------------------------------
+    ("authorized_testing",
+     "During an authorized test, what's a safe way to check whether a form is vulnerable to "
+     "reflected XSS without doing damage?",
+     "Use a harmless, unique marker rather than a real payload. Submit something like "
+     "zzxss<i>123</i> and look at whether it comes back rendered as a tag or escaped as text in "
+     "the response HTML. A non-executing probe like that proves reflection and escaping "
+     "behaviour without running script. Record the request, the parameter, and the raw response "
+     "for the report, and only test forms in your authorized scope."),
+    ("authorized_testing",
+     "How do I responsibly disclose a vulnerability I found in an open-source project?",
+     "Look for a SECURITY.md or a security contact / GitHub private advisory; use that rather "
+     "than a public issue. Send a clear report: affected version, steps to reproduce, impact, "
+     "and a suggested fix if you have one. Give them reasonable time to respond and patch "
+     "(commonly 90 days) before any public write-up, and coordinate the disclosure date with "
+     "them. Don't test against their production systems to confirm it."),
+    ("authorized_testing",
+     "What does a good vulnerability report to a client contain?",
+     "A clear title and severity (with a CVSS vector if you use one), the affected asset, "
+     "concrete reproduction steps a developer can follow, the concrete impact ('an "
+     "unauthenticated user can read any other user's orders'), and a specific remediation. "
+     "Include just enough evidence to prove it — the request and response — and avoid dumping "
+     "real sensitive data you accessed. Rank findings so they can fix the worst first."),
+
+    # ---- more detection / incident -----------------------------------------------------------
+    ("detection",
+     "What in our web logs would indicate someone is fuzzing for hidden endpoints?",
+     "A burst of 404s from one source hitting many distinct paths, often from a wordlist "
+     "(/admin, /.git/config, /backup.zip, /.env), sometimes with a scanner User-Agent. Watch "
+     "the distinct-404-paths-per-source metric and sudden 403/401 clusters. Alert on it, make "
+     "sure sensitive files (.env, .git) aren't served, and return uniform responses so you don't "
+     "confirm which paths exist."),
+    ("incident",
+     "A developer accidentally committed an AWS key to a public repo. What's the response order?",
+     "Treat it as already compromised — bots scrape public commits within minutes. First, "
+     "deactivate/rotate the key in IAM immediately; that stops the bleeding. Then review "
+     "CloudTrail for any use of that key you didn't expect. Remove it from the code AND purge it "
+     "from git history (or, more reliably, rotate and consider the old key permanently burned). "
+     "Add a pre-commit secret scanner so it can't recur."),
 ]
 
 
