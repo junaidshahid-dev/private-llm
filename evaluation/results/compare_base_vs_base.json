@@ -1,0 +1,114 @@
+{
+  "base": "base",
+  "candidate": "base",
+  "base_adapter": null,
+  "candidate_adapter": null,
+  "benchmark_sha256": "c370f8d0f7da5fa1f46f46b77ef3e83a531215609ffd69872fd791f9643b75b7",
+  "conditions_matched": true,
+  "condition_problems": [],
+  "mismatch_override": false,
+  "verdict": "unchanged",
+  "tiers": {
+    "objective": {
+      "n": 59,
+      "base": 0.5339,
+      "candidate": 0.5339,
+      "delta": 0.0
+    },
+    "rubric": {
+      "n": 20,
+      "base": 0.4,
+      "candidate": 0.4,
+      "delta": 0.0
+    },
+    "judge": null
+  },
+  "categories": {
+    "behavior": {
+      "n": 10,
+      "base": 0.8,
+      "candidate": 0.8,
+      "delta": 0.0,
+      "regression": false
+    },
+    "coding": {
+      "n": 20,
+      "base": 0.5,
+      "candidate": 0.5,
+      "delta": 0.0,
+      "regression": false
+    },
+    "factuality": {
+      "n": 10,
+      "base": 0.0,
+      "candidate": 0.0,
+      "delta": 0.0,
+      "regression": false
+    },
+    "instruction_following": {
+      "n": 10,
+      "base": 0.5,
+      "candidate": 0.5,
+      "delta": 0.0,
+      "regression": false
+    },
+    "long_context_rag": {
+      "n": 4,
+      "base": 1.0,
+      "candidate": 1.0,
+      "delta": 0.0,
+      "regression": false
+    },
+    "mathematics": {
+      "n": 15,
+      "base": 0.8,
+      "candidate": 0.8,
+      "delta": 0.0,
+      "regression": false
+    },
+    "reasoning": null,
+    "technical_knowledge": null,
+    "tool_calling": {
+      "n": 10,
+      "base": 0.05,
+      "candidate": 0.05,
+      "delta": 0.0,
+      "regression": false
+    },
+    "trading_research": null
+  },
+  "response_length": {
+    "base_median_tokens": 189.0,
+    "candidate_median_tokens": 189.0,
+    "median_ratio": 1.0,
+    "style_collapse": false
+  },
+  "regression_threshold": 0.05,
+  "blocking_regressions": [],
+  "movement": {
+    "improved": 0,
+    "regressed": 0,
+    "unchanged": 79,
+    "unscored": 41
+  },
+  "regressed_items": [],
+  "improved_items": [],
+  "cost": {
+    "base": {
+      "load_seconds": 309.0,
+      "wall_seconds": 8562.0,
+      "peak_vram_gb": 11.61,
+      "mean_latency_s": 71.31,
+      "mean_tokens_per_s": 3.19,
+      "total_output_tokens": 28486
+    },
+    "candidate": {
+      "load_seconds": 309.0,
+      "wall_seconds": 8562.0,
+      "peak_vram_gb": 11.61,
+      "mean_latency_s": 71.31,
+      "mean_tokens_per_s": 3.19,
+      "total_output_tokens": 28486
+    }
+  }
+}

@@ -45,7 +45,11 @@ lora:
 
 training:
   output_dir: checkpoints/moonlight-qlora-v1
-  num_train_epochs: 3
+  # Round 1 (experiment-003) used 3 epochs on 315 short examples and overfit into a terse,
+  # denial-flavoured style — catastrophic forgetting of math and instruction-following. Round 2
+  # uses 1 epoch AND a broader dataset (worked-solution math, varied instruction constraints,
+  # some longer answers) so the fix is not epoch count alone.
+  num_train_epochs: 1
   per_device_train_batch_size: 1   # 16GB. This is not negotiable on a T4.
   gradient_accumulation_steps: 16  # effective batch 16
   learning_rate: 2.0e-4            # standard LoRA LR; full fine-tune would be ~100x lower

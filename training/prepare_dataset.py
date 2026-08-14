@@ -51,7 +51,11 @@ D = lambda *p: os.path.join(HERE, "data", *p)          # noqa: E731
 SEED = 20260813
 SPLIT = (0.90, 0.05, 0.05)                              # train / validation / test
 
-MIN_OUTPUT_CHARS = 20
+# A 1-char answer is correct for "reply with only the number: 8" — the format-following
+# examples we most need. The 20-char floor was a blunt anti-stub guard from when data was
+# scraped; every source is now a self-validating generator, so reject only empty answers and
+# enforce quality upstream instead.
+MIN_OUTPUT_CHARS = 1
 MAX_OUTPUT_CHARS = 24000
 MIN_PROMPT_CHARS = 8
 MAX_TOKENS = 1024                                       # must match configs max_seq_len

@@ -1,29 +1,31 @@
 {
-  "built_at": "2026-08-14T15:05:18+00:00",
-  "dataset_version": "c1ae0838debfde16",
+  "built_at": "2026-08-14T17:18:12+00:00",
+  "dataset_version": "0bd8cd2671c6b984",
   "seed": 20260813,
   "counts": {
-    "train": 315,
-    "validation": 18,
-    "test": 18
+    "train": 344,
+    "validation": 19,
+    "test": 20
   },
-  "raw_examples": 355,
+  "raw_examples": 387,
   "dropped": {
     "dropped: prompt too short": 1,
-    "dropped: answer length": 1,
+    "dropped: answer echoes prompt": 1,
     "dropped: unrecognised shape": 1,
     "dropped: duplicate": 1
   },
   "tokenizer_used": true,
   "max_tokens": 1024,
   "token_stats": {
-    "mean": 51.34188034188034,
+    "mean": 50.61096605744125,
     "max": 161,
-    "min": 16
+    "min": 15
   },
   "sources": {
     "factuality.jsonl": 262,
+    "security_train.jsonl": 25,
     "seed.jsonl": 64,
-    "security_train.jsonl": 25
+    "math_train.jsonl": 16,
+    "instructions_train.jsonl": 16
   }
 }

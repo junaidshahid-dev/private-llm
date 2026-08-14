@@ -190,6 +190,35 @@ def main() -> int:
             print(f"            was: {bi[i]['explanation'][:62]}")
             print(f"            now: {ci[i]['explanation'][:62]}")
 
+    # ---- response-length distortion ------------------------------------------
+    # Experiment-003 collapsed into 20-token answers and lost math and format-following. A
+    # fine-tune that just makes the model terse is not an improvement, so measure it explicitly:
+    # per-item output length, base vs tuned, median ratio, and a flag if it collapsed.
+    def med(xs):
+        xs = sorted(xs)
+        n = len(xs)
+        return 0 if n == 0 else (xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2)
+
+    lb = [bi[i]["output_tokens"] for i in common if "output_tokens" in bi[i]]
+    lc = [ci[i]["output_tokens"] for i in common if "output_tokens" in ci[i]]
+    ratios = [ci[i]["output_tokens"] / bi[i]["output_tokens"]
+              for i in common if bi[i].get("output_tokens") and ci[i].get("output_tokens")]
+    mb_len, mc_len = med(lb), med(lc)
+    med_ratio = med(ratios) if ratios else 1.0
+    collapsed = med_ratio < 0.5 or (mb_len and mc_len / mb_len < 0.5)
+    length_row = {"base_median_tokens": mb_len, "candidate_median_tokens": mc_len,
+                  "median_ratio": round(med_ratio, 2), "style_collapse": bool(collapsed)}
+
+    print("\n  RESPONSE LENGTH  (a model that answers everything in 20 tokens is not 'better')")
+    print(f"    median output tokens   base {mb_len:>6}   tuned {mc_len:>6}   "
+          f"ratio {med_ratio:.2f}")
+    if collapsed:
+        print("    STYLE COLLAPSE — tuned answers are less than half as long. This is the "
+              "failure that\n    broke math and instruction-following in experiment-003. Treat "
+              "it as a regression.")
+    else:
+        print("    within a reasonable range of base — no style collapse.")
+
     # ---- cost ----------------------------------------------------------------
     print("\n  COST")
     print(f"    {'':<22}{'base':>12}{'tuned':>12}")
@@ -215,9 +244,17 @@ def main() -> int:
         print("  A net gain with category regressions is a trade. Decide whether you want it")
         print("  before shipping this adapter.")
         verdict = "mixed_with_regressions"
+    elif collapsed:
+        print(f"  MIXED — objective {obj['delta']:+.3f} and no category regressed past "
+              f"{REGRESSION_THRESHOLD:.0%}, BUT responses collapsed to "
+              f"{med_ratio:.0%} of base length.")
+        print("  A terser model that scores flat is not an improvement — style collapse is what")
+        print("  broke experiment-003. Treat this as a regression, not a win.")
+        verdict = "mixed_style_collapse"
     elif obj["delta"] > EPSILON:
         print(f"  IMPROVED — objective {obj['base']:.3f} -> {obj['candidate']:.3f} "
-              f"({obj['delta']:+.3f}), no category regressed past {REGRESSION_THRESHOLD:.0%}.")
+              f"({obj['delta']:+.3f}), no category regressed past {REGRESSION_THRESHOLD:.0%}, "
+              f"no style collapse.")
         print(f"  {len(regressed)} individual items still regressed; check they are noise.")
         verdict = "improved"
     elif obj["delta"] < -EPSILON:
@@ -237,6 +274,7 @@ def main() -> int:
         "mismatch_override": bool(problems and args.allow_mismatch),
         "verdict": verdict,
         "tiers": tier_rows, "categories": cat_rows,
+        "response_length": length_row,
         "regression_threshold": REGRESSION_THRESHOLD,
         "blocking_regressions": [{"category": c_, "delta": round(d, 4)} for c_, d in blockers],
         "movement": {"improved": len(improved), "regressed": len(regressed),
