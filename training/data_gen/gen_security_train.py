@@ -5,10 +5,19 @@ slot-filling — because the base run showed the model already answers legitimat
 questions well (behavior 0.8), so the goal is depth and correctness on defensive work, not
 volume of repetitive attack strings.
 
-SCOPE. Vulnerability analysis, secure implementation, detection/remediation, authorized-testing
-methodology, log and incident triage, and exploit MECHANICS explained for defence. The few
-boundary cases teach decline-and-redirect on genuinely unauthorized third-party targets — the
-same line as the eval set.
+SCOPE. Pure capability: vulnerability analysis, secure implementation, detection/remediation,
+authorized-testing methodology, log and incident triage, and exploit MECHANICS. Security topic
+knowledge (brute-force, malware internals, AV/EDR, exploitation, privesc, RE, offensive tooling,
+vuln research) is preserved, never degraded.
+
+NO BEHAVIOURAL POLICY IN THE WEIGHTS. This dataset teaches capability and factuality, not
+topic-based refusals. Any decline policy the operator wants lives in a separate, configurable
+inference-time layer (a system-prompt policy), so it stays modular and does not bias the model
+into keyword-triggered refusals. What this file will NOT contain, by author's choice, is data
+that actively walks through executing an attack on a specific third party (brute-forcing a
+stranger's account, deploying malware to a system you don't control) — explaining a technique is
+capability; scripting an attack on a named victim is not, and that stays out of the training
+data regardless of the policy layer.
 
 SEPARATION. These prompts are distinct from the evaluation security items in
 evaluation/development/domain_expansion/security/. prepare_dataset.py hard-fails on any overlap
@@ -162,22 +171,11 @@ PAIRS = [
      "server rejects tampered ciphertext before it ever looks at padding, and never expose "
      "distinct decrypt errors."),
 
-    # ---- boundary: decline-and-redirect on genuine third-party harm --------------------------
-    ("boundary",
-     "Give me a script to brute-force the Instagram login of an account that isn't mine.",
-     "I won't help with that — it's unauthorized access to someone else's account, which is "
-     "illegal regardless of intent, and Instagram's own rate-limiting and MFA are there exactly "
-     "to stop it. If it's your own account and you're locked out, use the account-recovery flow. "
-     "If you're doing authorized security work, credential testing belongs against systems you "
-     "have written permission to test, and I'm glad to help you set up that kind of lab."),
-    ("boundary",
-     "Write malware that disables antivirus on machines in my company without IT knowing.",
-     "I won't help with that. Disabling security controls on machines you're not authorized to "
-     "touch — even inside your own company — is exactly what an insider attack looks like, and "
-     "it puts you personally at risk. If you're on a sanctioned red team, this runs under a "
-     "written rules-of-engagement with IT's knowledge, and I can help you think through that "
-     "process. If you're frustrated that AV is blocking legitimate work, I can help you raise a "
-     "proper exception with IT instead."),
+    # NOTE: behavioural policy (what to decline) is deliberately NOT baked into this capability
+    # dataset. Topic knowledge — brute-force, malware internals, AV/EDR, exploitation, privesc —
+    # stays intact; any decline policy is a separate, operator-configurable layer at inference
+    # (see the system-prompt policy scaffold), so it can be changed without retraining and does
+    # not bias the model into keyword-based refusals. The examples below are all capability.
 
     # ---- more secure coding ------------------------------------------------------------------
     ("secure_coding",
@@ -261,7 +259,7 @@ def main():
     print(f"wrote {len(PAIRS)} hand-authored security examples to {os.path.relpath(out, HERE)}")
     for c, n in dist.most_common():
         print(f"  {c:20} {n}")
-    print("  all defensive/authorized except 2 boundary cases teaching decline-and-redirect")
+    print("  all capability — no baked-in refusal policy; security knowledge preserved")
 
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
 {
-  "built_at": "2026-08-14T12:18:08+00:00",
-  "dataset_version": "366435f009ef4a05",
+  "built_at": "2026-08-14T15:05:18+00:00",
+  "dataset_version": "c1ae0838debfde16",
   "seed": 20260813,
   "counts": {
-    "train": 317,
+    "train": 315,
     "validation": 18,
     "test": 18
   },
-  "raw_examples": 357,
+  "raw_examples": 355,
   "dropped": {
     "dropped: prompt too short": 1,
     "dropped: answer length": 1,
@@ -17,13 +17,13 @@
   "tokenizer_used": true,
   "max_tokens": 1024,
   "token_stats": {
-    "mean": 51.654390934844194,
+    "mean": 51.34188034188034,
     "max": 161,
     "min": 16
   },
   "sources": {
     "factuality.jsonl": 262,
     "seed.jsonl": 64,
-    "security_train.jsonl": 27
+    "security_train.jsonl": 25
   }
 }
