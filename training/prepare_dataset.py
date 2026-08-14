@@ -185,19 +185,31 @@ def main() -> int:
         overlap = tr & {r["_hash"] for r in parts[name]}
         if overlap:
             raise SystemExit(f"CONTAMINATION: {len(overlap)} examples in both train and {name}")
-    bench = os.path.join(HERE, "evaluation", "benchmark.jsonl")
-    if os.path.exists(bench):
-        bh = set()
-        with open(bench, encoding="utf-8") as f:
+    # Every evaluation prompt — the frozen benchmark AND every development set — must be absent
+    # from training. Collect them all by glob so a moved or renamed benchmark cannot silently
+    # slip the guard, and FAIL LOUDLY if none are found: a contamination check that quietly
+    # no-ops when it cannot locate the benchmark is worse than none, because it reads as a pass.
+    bench_files = (glob.glob(os.path.join(HERE, "evaluation", "frozen", "**", "benchmark.jsonl"),
+                             recursive=True)
+                   + glob.glob(os.path.join(HERE, "evaluation", "development", "**", "*.jsonl"),
+                               recursive=True))
+    if not bench_files:
+        raise SystemExit("CONTAMINATION GUARD FAILED: no evaluation files found under "
+                         "evaluation/frozen or evaluation/development — refusing to build a "
+                         "training set that cannot be checked against the benchmark.")
+    bh = set()
+    for bf in bench_files:
+        with open(bf, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     o = json.loads(line)
                     bh.add(hashlib.sha256(norm(o.get("prompt", "")).encode()).hexdigest())
-        hit = [r for r in parts["train"]
-               if hashlib.sha256(norm(r["messages"][0]["content"]).encode()).hexdigest() in bh]
-        if hit:
-            raise SystemExit(f"CONTAMINATION: {len(hit)} benchmark prompts appear in train")
-        print(f"benchmark      {len(bh)} prompts, none present in train")
+    hit = [r for r in parts["train"]
+           if hashlib.sha256(norm(r["messages"][0]["content"]).encode()).hexdigest() in bh]
+    if hit:
+        raise SystemExit(f"CONTAMINATION: {len(hit)} benchmark/eval prompts appear in train")
+    print(f"benchmark      {len(bh)} eval prompts across {len(bench_files)} files, "
+          f"none present in train")
 
     # ---- write ---------------------------------------------------------------
     for name, rows in parts.items():
