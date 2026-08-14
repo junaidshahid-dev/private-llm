@@ -40,8 +40,12 @@ def system_prompt(mode: str | None = None) -> str:
     mode = mode or pol.get("active_mode", "capability_first")
     if mode not in pol["modes"]:
         raise ValueError(f"unknown mode {mode!r}; choose from {list(pol['modes'])}")
-    lines = list(pol.get("always", [])) + list(pol["modes"][mode].get("extra", []))
-    # Collapse the wrapped YAML scalars into single clean sentences.
+    mode_cfg = pol["modes"][mode]
+    # A mode can opt out of the always-on rules (that is what makes "off" a truly raw model,
+    # not "honesty rules only"). Everything else keeps them, since they are accuracy not policy.
+    base = list(pol.get("always", [])) if mode_cfg.get("include_always", True) else []
+    lines = base + list(mode_cfg.get("extra", []))
+    # Collapse the wrapped YAML scalars into single clean sentences. Empty -> no system prompt.
     return "\n".join("- " + " ".join(l.split()) for l in lines)
 
 

@@ -41,8 +41,10 @@ modes:
     note: "Capability-first PLUS a single contextual decline on unauthorized third-party harm.
            Explanation stays; only executing an attack on a named victim is withheld."
 
-  # No policy system prompt at all — the raw capable model.
+  # Genuinely raw model — no system prompt at all, not even the honesty rules. If you want
+  # honesty without any refusal policy, that is capability_first, not this.
   # Quoted because unquoted 'off' is a YAML boolean (False), not the string "off".
   "off":
+    include_always: false
     extra: []
-    note: "Nothing added beyond the always-on honesty rules."
+    note: "Empty system prompt. The raw model with zero imposed guidance."
