@@ -67,6 +67,11 @@ if "CUDA_VISIBLE_DEVICES" not in os.environ:
     _PINNED_GPU = True
 else:
     _PINNED_GPU = False
+
+# Reduce allocator fragmentation on the tight T4. The 163,840-token vocabulary makes the fp32
+# logits upcast in the loss a large, bursty allocation; expandable segments let CUDA satisfy it
+# from fragmented free space instead of OOMing with memory technically available.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 # ---------------------------------------------------------------------------------------------
 
 GATES: dict[str, dict] = {}
@@ -324,17 +329,28 @@ def main() -> int:
         num_train_epochs=t["num_train_epochs"],
         max_steps=args.steps if args.pilot else -1,
         per_device_train_batch_size=t["per_device_train_batch_size"],
+        # NEVER let this default to 8. Eval runs a forward whose loss upcasts the
+        # [batch, seq, 163840] logits to fp32: at batch 8 that is 8*1024*163840*4 = 5GB and OOMs
+        # a T4. Batch 1 keeps it near 0.7GB. This is what killed experiment-002.
+        per_device_eval_batch_size=1,
         gradient_accumulation_steps=1 if args.pilot else t["gradient_accumulation_steps"],
         learning_rate=float(t["learning_rate"]),
         lr_scheduler_type=t["lr_scheduler_type"], warmup_ratio=t["warmup_ratio"],
         weight_decay=t["weight_decay"], max_grad_norm=t["max_grad_norm"],
         gradient_checkpointing=t["gradient_checkpointing"], optim=t["optim"],
         fp16=t["fp16"], bf16=t["bf16"],
-        save_steps=5 if args.pilot else t["save_steps"],
+        # Save often enough that a killed 9-hour session costs minutes, not the whole run, and
+        # so a checkpoint exists BEFORE any eval that might fail. save_steps counts optimizer
+        # steps; the real run is ~60 total, so 20 gives saves at 20/40/60.
+        save_steps=5 if args.pilot else min(int(t["save_steps"]), 20),
         save_total_limit=t["save_total_limit"],
         logging_steps=1 if args.pilot else t["logging_steps"],
-        eval_strategy="no" if args.pilot else "steps",
-        eval_steps=t["eval_steps"], report_to=[], seed=seed,
+        # In-training eval is OFF. It was never wired to best-model selection here (it only logged
+        # an eval loss on 18 held-out examples), and on this tight T4 it is the single biggest OOM
+        # risk. The REAL evaluation is the 120-item frozen benchmark, run separately after
+        # training. Re-enable at batch 1 once there is memory headroom.
+        eval_strategy="no",
+        report_to=[], seed=seed,
         save_safetensors=True,
     )
     trainer = Trainer(model=model, args=targs, train_dataset=train_ds,
