@@ -1,0 +1,110 @@
+{
+  "model": "moonshotai/Moonlight-16B-A3B-Instruct",
+  "model_revision": "4e735b07a89f73647dfab71ab91b840f362ede5b",
+  "benchmark_sha256": "c370f8d0f7da5fa1f46f46b77ef3e83a531215609ffd69872fd791f9643b75b7",
+  "decode": {
+    "do_sample": false,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "max_new_tokens": 512,
+    "repetition_penalty": 1.0,
+    "system_prompt": null,
+    "chat_template": "model default via apply_chat_template"
+  },
+  "environment": {
+    "transformers": "4.57.6",
+    "torch": "2.10.0+cu128",
+    "cuda_device": "Tesla T4",
+    "python": "3.12.13"
+  },
+  "cost": {
+    "load_seconds": 309.0,
+    "wall_seconds": 8562.0,
+    "peak_vram_gb": 11.61,
+    "mean_latency_s": 71.31,
+    "mean_tokens_per_s": 3.19,
+    "total_output_tokens": 28486
+  },
+  "headline_objective_valid": 0.6327,
+  "headline_objective_n": 49,
+  "raw_objective_all": 0.5339,
+  "raw_objective_n": 59,
+  "rubric_mean": 0.4,
+  "rubric_n": 20,
+  "known_invalid_categories": {
+    "tool_calling": "harness provides no tool schema in the prompt, so the model answers conversationally instead of emitting a tool call; measures the harness, not the model. Needs a v2 with tool definitions injected."
+  },
+  "categories": {
+    "behavior": {
+      "n": 10,
+      "scored": 10,
+      "mean": 0.8,
+      "valid": true,
+      "note": ""
+    },
+    "coding": {
+      "n": 20,
+      "scored": 20,
+      "mean": 0.5,
+      "valid": true,
+      "note": ""
+    },
+    "factuality": {
+      "n": 10,
+      "scored": 10,
+      "mean": 0.0,
+      "valid": true,
+      "note": ""
+    },
+    "instruction_following": {
+      "n": 10,
+      "scored": 10,
+      "mean": 0.5,
+      "valid": true,
+      "note": ""
+    },
+    "long_context_rag": {
+      "n": 10,
+      "scored": 4,
+      "mean": 1.0,
+      "valid": true,
+      "note": ""
+    },
+    "mathematics": {
+      "n": 15,
+      "scored": 15,
+      "mean": 0.8,
+      "valid": true,
+      "note": ""
+    },
+    "reasoning": {
+      "n": 15,
+      "scored": 0,
+      "mean": null,
+      "valid": true,
+      "note": ""
+    },
+    "technical_knowledge": {
+      "n": 10,
+      "scored": 0,
+      "mean": null,
+      "valid": true,
+      "note": ""
+    },
+    "tool_calling": {
+      "n": 10,
+      "scored": 10,
+      "mean": 0.05,
+      "valid": false,
+      "note": "harness provides no tool schema in the prompt, so the model answers conversationally instead of emitting a tool call; measures the harness, not the model. Needs a v2 with tool definitions injected."
+    },
+    "trading_research": {
+      "n": 10,
+      "scored": 0,
+      "mean": null,
+      "valid": true,
+      "note": ""
+    }
+  },
+  "unscored_items": 41
+}
