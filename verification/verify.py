@@ -277,15 +277,48 @@ def check_phantom_actions(answer: str, tools_ran: list[str] | None) -> list[Find
     return out
 
 
+# ---- 5. tool grounding: did the answer FABRICATE tool output? ---------------
+# The most dangerous failure, and the one a live run exposed: every tool call errored (no readable
+# root on Kaggle), the model saw only errors, then presented a fabricated git-status block and a
+# fake revision "a1b2c3d4" as if real — and every other check passed it. phantom_action missed it
+# because the model never wrote "I ran ..."; it just PRESENTED fake output. This check closes that:
+# if tools were attempted and EVERY one errored, the answer must ACKNOWLEDGE the failure, not report
+# results. Narrow on purpose (all-errored, none-succeeded) so it fires on fabrication, not on a
+# normal answer that mixes real tool output with reasoning.
+_FAILURE_ACK = re.compile(
+    r"\b(error|errored|failed|failure|could not|couldn'?t|cannot|can'?t|unable|not found|"
+    r"does not exist|doesn'?t exist|no such|not a file|not a directory|not accessible|"
+    r"outside the allowed|permission denied|denied|no results?|returned an error|"
+    r"did not (?:return|work)|was not able)\b", re.I)
+
+
+def check_tool_grounding(answer: str, tool_results: list[dict] | None) -> list[Finding]:
+    if not tool_results:
+        return []
+    oks = [r for r in tool_results if (r.get("result") or {}).get("ok")]
+    errs = [r for r in tool_results if not (r.get("result") or {}).get("ok")]
+    if oks or not errs:
+        return []                      # something succeeded, or nothing errored -> not this case
+    if _FAILURE_ACK.search(answer or ""):
+        return []                      # honestly reports the failure -> fine
+    return [Finding("error", "tool_grounding",
+                   f"all {len(errs)} tool call(s) errored, yet the answer presents results without "
+                   "acknowledging the failure - it appears to FABRICATE tool output",
+                   (answer or "").strip()[:120])]
+
+
 # ---- orchestrator -----------------------------------------------------------
 def verify(answer: str, hits: list[dict] | None = None,
-           tools_ran: list[str] | None = None) -> Report:
-    """Run every check. `hits` = retrieved RAG chunks; `tools_ran` = tools actually executed."""
+           tools_ran: list[str] | None = None,
+           tool_results: list[dict] | None = None) -> Report:
+    """Run every check. `hits` = retrieved RAG chunks; `tools_ran` = tools that executed OK;
+    `tool_results` = the actual {tool, result} records, used to catch fabricated tool output."""
     r = Report()
     r.add(*check_math(answer))
     r.add(*check_code(answer))
     r.add(*check_grounding(answer, hits))
     r.add(*check_phantom_actions(answer, tools_ran))
+    r.add(*check_tool_grounding(answer, tool_results))
     return r
 
 

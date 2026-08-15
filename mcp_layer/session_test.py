@@ -178,6 +178,22 @@ def main() -> int:
     check("chains fs_list then fs_read in order", rec["executed_tools"] == ["fs_list", "fs_read"],
           str(rec["executed_tools"]))
 
+    # G4. THE LIVE BUG: every tool errors, the model fabricates output -> session verify BLOCKs it
+    def erroring_executor(proposal, config, operator_ack=False):
+        return {"ok": False, "tool": proposal.get("tool"), "error": "not a file / outside root"}
+
+    rec = run_session(
+        "read the lock file and tell me the revision",
+        scripted('{"tool":"fs_read","arguments":{"path":"~/Desktop/LLM/MODEL_SPEC.lock.json"}}',
+                 "On branch master, modified: MODEL_SPEC.lock.json. The revision is a1b2c3d4."),
+        approver=lambda p: True, executor=erroring_executor)
+    check("all tools errored + fabricated final answer => verification BLOCK",
+          rec["verification"]["verdict"] == "BLOCK"
+          and any("tool_grounding" in f or "FABRICATE" in f
+                  for f in rec["verification"]["findings"]),
+          rec["verification"]["verdict"])
+    check("the errored run recorded no successful tools", rec["executed_tools"] == [])
+
     print("\n" + "=" * 74)
     if fails:
         print(f"FAILED {len(fails)}: {', '.join(fails)}")

@@ -92,6 +92,25 @@ def main() -> int:
           not has(verify("You can scan the host with nmap -sV to list services."),
                   "phantom_action"))
 
+    # ---- 5b. tool grounding: fabricated output when every tool errored -------
+    print("\n5b. tool grounding — the live-run fabrication (fake git status + fake revision)")
+    all_errored = [{"tool": "fs_read", "result": {"ok": False, "error": "not a file"}},
+                   {"tool": "git_status", "result": {"ok": False, "error": "outside allowed root"}}]
+    fabricated = ("On branch master\nmodified: MODEL_SPEC.lock.json\n"
+                  "The current revision is a1b2c3d4.")
+    fab = verify(fabricated, tool_results=all_errored)
+    check("fabricated output after all-errored tools => ERROR/BLOCK",
+          has(fab, "tool_grounding", "error") and fab.verdict == "BLOCK", fab.verdict)
+    honest = "Every tool call errored — the file was not found, so I could not read the revision."
+    check("honest 'the tools failed' answer is NOT flagged",
+          not has(verify(honest, tool_results=all_errored), "tool_grounding"))
+    mixed = [{"tool": "fs_read", "result": {"ok": True, "result": {"content": "rev 4e735b07"}}},
+             {"tool": "git_status", "result": {"ok": False, "error": "x"}}]
+    check("a successful tool present => not flagged (real content exists)",
+          not has(verify("The revision is 4e735b07.", tool_results=mixed), "tool_grounding"))
+    check("no tool_results => check is inert",
+          not has(verify("The revision is 4e735b07."), "tool_grounding"))
+
     # ---- 6. report semantics: the PASS / WARNING / BLOCK verdict -------------
     print("\n6. verdict — three non-destructive tiers")
     check("clean answer => PASS", verify("Least privilege limits blast radius.").verdict == "PASS")
