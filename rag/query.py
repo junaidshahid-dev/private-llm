@@ -32,11 +32,24 @@ sys.path.insert(0, HERE)
 
 MIN_SCORE = 0.30          # cosine below this = no genuine match; abstain rather than force it
 
+# Grounding contract. The earlier version said "use ONLY the context ... no outside knowledge."
+# That is right for questions about the operator's own material (repo, model internals), where the
+# model has no reliable parametric knowledge and must not guess — but it is WRONG for a capable
+# domain assistant. On security benchmark v2 it caused a regression: a doc about nmap banner
+# false-positives made the model DROP a CVE (Samba 3.0.20 -> CVE-2007-2447) it had answered
+# correctly with no RAG at all. "Only the context" turned grounding into blinders and suppressed
+# correct knowledge. The fix (measured, not retrained): the context is the AUTHORITATIVE reference,
+# but the model must still answer completely from its own expertise, preferring the context where
+# they disagree. Abstention on genuinely-unknown material is preserved by build_prompt's NO_CONTEXT
+# branch (retrieval score < MIN_SCORE), not by gagging the model's knowledge on every answer.
 GROUNDED_SYSTEM = (
-    "Answer the question using ONLY the numbered context below. "
-    "If the context does not contain the answer, say you do not have that information — do not "
-    "use outside knowledge and do not guess. When you use a fact, cite its [n]. Be accurate and "
-    "as detailed as the context supports."
+    "Use the numbered reference context below as your authoritative source, and cite each fact you "
+    "take from it as [n]. The context is curated reference, not the limit of what is true: also "
+    "draw on your own expert knowledge to give a COMPLETE answer, including relevant specifics the "
+    "context omits — a named CVE, an exact command, a version detail — when you are confident in "
+    "them. Where your knowledge and the context conflict, trust the context and say so. Do not "
+    "invent facts you are unsure of; if neither the context nor your confident knowledge covers "
+    "part of the question, say that plainly rather than guessing."
 )
 NO_CONTEXT = (
     "No relevant context was found in the knowledge base for this question. Tell the user you do "
