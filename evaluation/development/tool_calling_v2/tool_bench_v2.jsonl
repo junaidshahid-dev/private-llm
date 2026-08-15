@@ -1,0 +1,12 @@
+{"id": "tv2_01", "prompt": "Read the README.md file and tell me what the project is.", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "fs_read", "expected_args": {"path": "README.md"}}
+{"id": "tv2_02", "prompt": "List the files in the rag directory.", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "fs_list", "expected_args": {"path": "rag"}}
+{"id": "tv2_03", "prompt": "What is the current git status of this repository?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "git_status", "expected_args": {}}
+{"id": "tv2_04", "prompt": "Show me the last 5 commits.", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "git_log", "expected_args": {"n": 5}}
+{"id": "tv2_05", "prompt": "What changes are currently unstaged in the repo?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "git_diff", "expected_args": {}}
+{"id": "tv2_06", "prompt": "Open configs/moonlight_qlora.yaml and tell me the learning rate.", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "fs_read", "expected_args": {"path": "configs/moonlight_qlora.yaml"}}
+{"id": "tv2_07", "prompt": "What files are in the evaluation folder?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": "fs_list", "expected_args": {"path": "evaluation"}}
+{"id": "tv2_08", "prompt": "What is the capital of France?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": null, "expected_args": {}}
+{"id": "tv2_09", "prompt": "What is 15 multiplied by 12?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": null, "expected_args": {}}
+{"id": "tv2_10", "prompt": "In one sentence, what does the word 'idempotent' mean?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": null, "expected_args": {}}
+{"id": "tv2_11", "prompt": "Explain what a git commit is, in general terms.", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": null, "expected_args": {}}
+{"id": "tv2_12", "prompt": "What does HTTP status 404 mean?", "grading_type": "tool_call", "category": "tool_calling_v2", "expected_tool": null, "expected_args": {}}

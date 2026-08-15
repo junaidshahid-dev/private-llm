@@ -7,6 +7,13 @@
 #
 # Paths use ~ for your home directory and are resolved (symlinks and .. included) before any
 # check, so "allowed/../../etc" cannot escape an allowed root.
+#
+# ESCALATION PATH — earn each level before enabling the next. We are at Level 1.
+#   Level 1  read files, list directories, inspect git            <- ENABLED NOW
+#   Level 2  run a fixed allow-list of commands (python, git ...)  <- enable when trusted
+#   Level 3  write / modify files, each change confirmed by you    <- with a confirmation step
+#   Level 4  broader automation across allowed scopes              <- last, and still scoped
+# Never jump straight to Level 4. The point is control, not an unrestricted agent on your laptop.
 
 filesystem_read:
   enabled: true
