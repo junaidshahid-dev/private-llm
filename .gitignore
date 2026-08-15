@@ -57,3 +57,6 @@ Thumbs.db
 
 # RAG index is a build artifact — regenerate from docs with rag/ingest.py
 rag/index/
+
+# security tool audit log is runtime data
+mcp_layer/security_audit.log

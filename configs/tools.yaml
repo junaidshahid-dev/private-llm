@@ -42,3 +42,20 @@ terminal:
 
 python_exec:
   enabled: false
+
+# Security / penetration-testing tools, scoped to YOUR lab. A separate group because the risk is
+# different: these touch the NETWORK, so the gate is target validation, not just paths. Recon and
+# analysis only for now (nmap service scan, tshark capture analysis); no exploitation yet.
+#
+# OFF by default. Enable only when your lab targets, confirmation, and the audit log are what you
+# want. allowed_targets should be your own hosts and RFC1918 ranges — a target outside these is
+# rejected before anything runs, so the scanner cannot be pointed at the internet.
+security_tools:
+  enabled: false
+  allowed_targets:
+    - "127.0.0.1"
+    - "localhost"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  require_confirmation: true     # the model proposes a scan; you approve it before it runs
