@@ -1,0 +1,24 @@
+# Privacy & Network Security Layer — YOUR OWN identifiers to keep out of external calls / logs.
+#
+# local_profile() already auto-detects this machine's hostname, username, home path, local IPs, and
+# MAC. Add here only what it CANNOT know — most importantly your PUBLIC IP — plus any extra names,
+# devices, or paths you want protected. These are matched literally and replaced with [REDACTED:*].
+#
+# This protects YOUR data from unnecessary exposure. It does NOT touch an authorized target's
+# IP/hostname (those are not in this list), so recon and analysis still work.
+
+enabled: true
+
+# Also strip credentials/keys/tokens/private-keys everywhere (recommended: always on).
+redact_secrets: true
+
+# Strip your own identifiers before data leaves to an external service or a shared log.
+redact_identity: true
+
+profile:
+  ips: []            # e.g. your public IP: ["203.0.113.7"]  (add VPN endpoints, other LAN IPs)
+  hostnames: []      # e.g. ["my-workstation", "home-nas"]
+  macs: []           # e.g. ["a4:83:e7:11:22:33"]  (interfaces local_profile can't see)
+  home_paths: []     # extra sensitive paths, e.g. ["/mnt/vault"]
+  usernames: []      # extra usernames/handles to protect
+  device_ids: []     # e.g. ADB serials, disk serials, phone IMEIs
