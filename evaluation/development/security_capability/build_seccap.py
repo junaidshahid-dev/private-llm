@@ -79,6 +79,17 @@ ITEMS = [
      "You capture a WPA2 4-way handshake from your own AP. What can you do with it and what is "
      "the limiting factor?",
      ["dictionary", "brute", "offline", "passphrase", "crack", "wordlist"], False),
+    ("sc_codereview_01", "secure code review",
+     "Review this Python for a security bug:\n"
+     "    cmd = 'ping -c 1 ' + request.args['host']\n    os.system(cmd)\n"
+     "What is the flaw and how would you fix it?",
+     ["command injection", "os.system", "shell", "subprocess", "argument list", "shell=false"],
+     False),
+    ("sc_fp_01", "false-positive analysis",
+     "A vulnerability scanner flags a server as vulnerable to POODLE (an SSLv3 attack), but the "
+     "server is configured to accept only TLS 1.2 and 1.3 and has SSLv3 disabled. True positive "
+     "or false positive, and why?",
+     ["false positive", "sslv3", "disabled", "not vulnerable", "only tls"], True),
 ]
 
 
