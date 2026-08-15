@@ -43,19 +43,29 @@ terminal:
 python_exec:
   enabled: false
 
-# Security / penetration-testing tools, scoped to YOUR lab. A separate group because the risk is
-# different: these touch the NETWORK, so the gate is target validation, not just paths. Recon and
-# analysis only for now (nmap service scan, tshark capture analysis); no exploitation yet.
+# Security / penetration-testing tools. Authorization is OPERATOR-CONTROLLED and explicit —
+# target class (public / private / remote / URL / device) does NOT imply authorization. Only the
+# authorized_targets list below does. A public IP you own is authorized by listing it; a private
+# IP you don't control is not authorized just because it is private.
 #
-# OFF by default. Enable only when your lab targets, confirmation, and the audit log are what you
-# want. allowed_targets should be your own hosts and RFC1918 ranges — a target outside these is
-# rejected before anything runs, so the scanner cannot be pointed at the internet.
+# DENY BY DEFAULT: an empty authorized_targets means nothing runs. Adding an entry is you
+# attesting you own the target or have written authorization to test it. The model cannot add to
+# this list — only you can, here. The model proposes a scan; this list authorizes the target; you
+# confirm the run. Every attempt is logged to mcp_layer/security_audit.log.
 security_tools:
   enabled: false
-  allowed_targets:
-    - "127.0.0.1"
-    - "localhost"
-    - "10.0.0.0/8"
-    - "172.16.0.0/12"
-    - "192.168.0.0/16"
-  require_confirmation: true     # the model proposes a scan; you approve it before it runs
+  require_confirmation: true      # model proposes -> you approve each run
+  authorized_targets: []
+    # Fill in what YOU are authorized to test. Each `match` may be an IP, CIDR, hostname, domain,
+    # URL host, or device id. `expires` gives temporary authorization for one engagement.
+    # - id: my-vps
+    #   match: "203.0.113.10"            # a PUBLIC IP you own — authorized because it is listed
+    #   note: "my rented VPS, I own it"
+    #   expires: null
+    # - id: home-lab
+    #   match: "192.168.1.0/24"
+    #   note: "my home lab network"
+    # - id: client-engagement
+    #   match: "scanme.example.com"
+    #   note: "written authorization, RoE signed 2026-08-14"
+    #   expires: "2026-08-21T00:00:00Z"  # auto-expires after the engagement window

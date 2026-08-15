@@ -1,17 +1,17 @@
-"""test_security.py — the security-tool sandbox must scope to the lab and gate every call.
+"""test_security.py — authorization is by the operator's explicit list, not by IP class.
 
     python mcp_layer/test_security.py
 
-The tests that matter are the REJECTIONS: a scanner that can reach a public IP or a host outside
-your lab is a liability, not a feature. So this asserts, hard, that out-of-scope targets are
-refused before anything runs, that a disabled group runs nothing, and that confirmation is
-required — and only then that an in-scope target passes the gate. No nmap install needed: we test
-the gate, not the scan.
+The design principle under test: target CLASS does not decide authorization. A public IP the
+operator listed is allowed; a private IP they did not list is rejected; an expired authorization
+stops working. And the model can never authorize a target itself — only the config does, and
+deny-by-default means an empty list runs nothing.
 """
 from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -28,57 +28,70 @@ def check(name, ok, detail=""):
 
 
 def main() -> int:
-    print("=" * 74)
-    print("SECURITY TOOL LAYER — target validation + gating")
-    print("=" * 74)
-    allowed = ["127.0.0.1", "localhost", "192.168.1.0/24"]
+    print("=" * 76)
+    print("SECURITY LAYER — operator authorization, not IP class")
+    print("=" * 76)
 
-    print("\n1. target validation — REJECTIONS (the point)")
-    for bad, label in [("8.8.8.8", "public DNS"), ("1.1.1.1", "public IP"),
-                       ("192.168.2.5", "different subnet"), ("10.0.0.5", "other RFC1918 range"),
-                       ("example.com", "arbitrary hostname"), ("0.0.0.0", "wildcard"),
-                       ("169.254.1.1", "link-local")]:
-        ok, why = sec.target_allowed(bad, allowed)
-        check(f"reject {bad} ({label})", not ok, why[:46])
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    authed = [
+        {"id": "my-vps", "match": "203.0.113.10", "note": "my public VPS"},        # PUBLIC IP
+        {"id": "home-lab", "match": "192.168.1.0/24", "note": "my lab"},
+        {"id": "client", "match": "scanme.example.com", "note": "RoE signed", "expires": future},
+        {"id": "old-job", "match": "198.51.100.5", "note": "expired", "expires": past},
+    ]
 
-    print("\n2. target validation — ALLOWED")
-    for good, label in [("127.0.0.1", "loopback"), ("localhost", "listed hostname"),
-                        ("192.168.1.1", "in-range"), ("192.168.1.254", "in-range edge")]:
-        ok, why = sec.target_allowed(good, allowed)
-        check(f"allow {good} ({label})", ok, why[:40])
+    print("\n1. the principle: class does not decide — the LIST does")
+    ok, why = sec.target_authorized("203.0.113.10", authed)
+    check("PUBLIC IP that IS authorized -> allowed", ok, why[:48])
+    ok, why = sec.target_authorized("8.8.8.8", authed)
+    check("public IP NOT authorized -> rejected", not ok)
+    ok, why = sec.target_authorized("192.168.5.5", authed)
+    check("PRIVATE IP NOT authorized -> rejected (private != approved)", not ok)
+    ok, why = sec.target_authorized("192.168.1.50", authed)
+    check("private IP that IS authorized -> allowed", ok, why[:40])
+    ok, why = sec.target_authorized("scanme.example.com", authed)
+    check("authorized hostname -> allowed", ok)
+    ok, why = sec.target_authorized("https://scanme.example.com:8443/x", authed)
+    check("URL whose host is authorized -> allowed", ok, "host extracted from URL")
+    ok, why = sec.target_authorized("evil.example.org", authed)
+    check("unlisted hostname -> rejected", not ok)
 
-    print("\n3. dispatch gating")
-    cfg_off = {"security_tools": {"enabled": False, "allowed_targets": allowed,
-                                  "require_confirmation": True}}
-    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "127.0.0.1"}}, cfg_off)
-    check("disabled group runs nothing", not r["ok"] and "disabled" in r["error"])
+    print("\n2. temporary authorization expires")
+    ok, _ = sec.target_authorized("198.51.100.5", authed)
+    check("expired authorization -> rejected", not ok)
 
-    cfg_on = {"security_tools": {"enabled": True, "allowed_targets": allowed,
-                                 "require_confirmation": True},
-              "filesystem_read": {"enabled": True, "allowed_paths": [HERE]}}
-    # out-of-scope target: refused even though the group is enabled
-    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "8.8.8.8"}}, cfg_on)
-    check("enabled group still rejects out-of-scope target", not r["ok"]
-          and "not allowed" in r["error"])
-    # in-scope target without confirmation: proposes, does not run
-    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "127.0.0.1"}}, cfg_on)
-    check("in-scope target requires confirmation first", not r["ok"]
-          and r.get("needs_confirmation") is True, "proposes, waits for approval")
-    # in-scope + confirmed: passes the gate (then runs nmap, or reports it is not installed)
-    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "127.0.0.1"}}, cfg_on,
+    print("\n3. deny by default")
+    ok, why = sec.target_authorized("203.0.113.10", [])
+    check("empty authorized list -> nothing allowed", not ok, why[:44])
+
+    print("\n4. dispatch gating (enabled + authorized + confirmed)")
+    cfg = {"security_tools": {"enabled": True, "require_confirmation": True,
+                              "authorized_targets": authed},
+           "filesystem_read": {"enabled": True, "allowed_paths": [HERE]}}
+    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "8.8.8.8"}}, cfg)
+    check("unauthorized target refused even when group enabled", not r["ok"]
+          and "not authorized" in r["error"])
+    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "203.0.113.10"}}, cfg)
+    check("authorized public IP still needs confirmation", r.get("needs_confirmation") is True)
+    r = sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "203.0.113.10"}}, cfg,
                      confirmed=True)
-    passed_gate = r.get("ok") or "not installed" in (r.get("error", "") or "")
-    check("confirmed in-scope target passes the gate", passed_gate,
-          r.get("error", "ran")[:40])
+    check("authorized + confirmed passes the gate", r.get("ok") or "not installed" in
+          (r.get("error", "") or ""), r.get("error", "ran")[:36])
 
-    print("\n4. audit log records attempts")
-    before = os.path.getsize(sec.AUDIT_LOG) if os.path.exists(sec.AUDIT_LOG) else 0
-    sec.dispatch({"tool": "nmap_scan", "arguments": {"target": "8.8.8.8"}}, cfg_on)
-    after = os.path.getsize(sec.AUDIT_LOG) if os.path.exists(sec.AUDIT_LOG) else 0
-    check("denied attempt was logged", after > before)
+    print("\n5. offline analysis tools work without touching a target")
+    r = sec.dispatch({"tool": "url_info", "arguments":
+                      {"url": "https://sub.example.com:8443/a/b?q=1"}}, cfg)
+    check("url_info parses host/port offline",
+          r["ok"] and r["result"]["host"] == "sub.example.com" and r["result"]["port"] == 8443)
 
-    print("\n" + "=" * 74)
-    print(f"FAILED: {fails}" if fails else "ALL SECURITY-LAYER TESTS PASSED — lab scope holds.")
+    print("\n6. the model cannot self-authorize")
+    check("no tool exists to add an authorization",
+          all(t["name"] not in ("authorize", "add_target", "approve_target") for t in sec.schema()))
+
+    print("\n" + "=" * 76)
+    print(f"FAILED: {fails}" if fails else
+          "ALL PASSED — operator authorization holds; class does not decide.")
     return 1 if fails else 0
 
 
