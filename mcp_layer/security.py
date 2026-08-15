@@ -144,7 +144,27 @@ def schema() -> list[dict]:
         {"name": "pcap_analyze", "description": "Protocol-hierarchy summary of a capture file "
          "(read-only).", "arguments": {"path": "path to a .pcap/.pcapng inside an allowed path"}},
         {"name": "nmap_scan", "description": "Service/version recon of an AUTHORIZED target. "
-         "Requires confirmation.", "arguments": {"target": "an authorized IP/host/URL"}},
+         "Requires confirmation.", "arguments": {"target": "an authorized IP/host/URL"},
+         "read_only": False, "requires_authorization": True},
+        {"name": "hash_file", "description": "MD5/SHA1/SHA256 of a file (local, read-only) — IOCs / "
+         "reputation lookups.", "arguments": {"path": "file inside an allowed root"},
+         "returns": "size + md5/sha1/sha256", "read_only": True},
+        {"name": "strings_extract", "description": "Printable ASCII strings from a binary "
+         "(read-only) for RE/malware triage.",
+         "arguments": {"path": "file inside an allowed root", "min_len": "min run length, default 4"},
+         "read_only": True},
+        {"name": "file_type", "description": "Identify a file's type by magic bytes (read-only).",
+         "arguments": {"path": "file inside an allowed root"}, "returns": "type + magic hex",
+         "read_only": True},
+        {"name": "masscan_scan", "description": "Fast port scan of an AUTHORIZED target. Active; "
+         "requires confirmation.", "arguments": {"target": "an authorized IP/host"},
+         "read_only": False, "requires_authorization": True},
+        {"name": "ffuf_discover", "description": "Web content/directory discovery on an AUTHORIZED "
+         "URL. Active; requires confirmation.",
+         "arguments": {"target": "an authorized URL/host", "wordlist": "optional path"},
+         "read_only": False, "requires_authorization": True},
+        {"name": "adb_devices", "description": "List connected ADB devices (read-only, local).",
+         "arguments": {}, "read_only": True},
     ]
 
 
@@ -244,12 +264,155 @@ def nmap_scan(config, target, confirmed=False):
             "error": (r.stderr or "").strip()[:400] or None}
 
 
+# ---------------------------------------------------------------------------------------------
+# read-only file analysis (RE / malware triage) — no external binary, so fully testable + safe
+# ---------------------------------------------------------------------------------------------
+def hash_file(config, path, confirmed=False):
+    off = _need_group(config)
+    if off:
+        return off
+    ok, detail = perm.check_fs_read(config, path)
+    if not ok:
+        return {"ok": False, "error": detail}
+    import hashlib
+    try:
+        data = open(detail, "rb").read()
+    except OSError as e:
+        return {"ok": False, "error": f"cannot read: {e}"}
+    return {"ok": True, "result": {"size": len(data), "md5": hashlib.md5(data).hexdigest(),
+                                   "sha1": hashlib.sha1(data).hexdigest(),
+                                   "sha256": hashlib.sha256(data).hexdigest()},
+            "note": "hashes computed locally; use as IOCs / reputation lookups"}
+
+
+_PRINTABLE = set(range(0x20, 0x7F)) | {0x09}
+
+
+def strings_extract(config, path, min_len=4, confirmed=False):
+    off = _need_group(config)
+    if off:
+        return off
+    ok, detail = perm.check_fs_read(config, path)
+    if not ok:
+        return {"ok": False, "error": detail}
+    try:
+        data = open(detail, "rb").read(5_000_000)
+    except OSError as e:
+        return {"ok": False, "error": f"cannot read: {e}"}
+    out, cur = [], bytearray()
+    for b in data:
+        if b in _PRINTABLE:
+            cur.append(b)
+        else:
+            if len(cur) >= min_len:
+                out.append(cur.decode("ascii", "replace"))
+            cur = bytearray()
+    if len(cur) >= min_len:
+        out.append(cur.decode("ascii", "replace"))
+    return {"ok": True, "result": {"count": len(out), "strings": out[:500]},
+            "note": f"printable ASCII runs >= {min_len} chars (first 500)"}
+
+
+_MAGIC = [(b"\x7fELF", "ELF executable/object"), (b"MZ", "PE/DOS executable (Windows)"),
+          (b"%PDF", "PDF document"), (b"PK\x03\x04", "ZIP/JAR/APK/Office archive"),
+          (b"\x89PNG", "PNG image"), (b"\xff\xd8\xff", "JPEG image"),
+          (b"dex\n", "Android DEX"), (b"\xcf\xfa\xed\xfe", "Mach-O 64-bit"),
+          (b"\xca\xfe\xba\xbe", "Java class / Mach-O fat"), (b"#!", "script (shebang)"),
+          (b"\x1f\x8b", "gzip archive")]
+
+
+def file_type(config, path, confirmed=False):
+    off = _need_group(config)
+    if off:
+        return off
+    ok, detail = perm.check_fs_read(config, path)
+    if not ok:
+        return {"ok": False, "error": detail}
+    try:
+        head = open(detail, "rb").read(16)
+    except OSError as e:
+        return {"ok": False, "error": f"cannot read: {e}"}
+    kind = next((desc for magic, desc in _MAGIC if head.startswith(magic)), None)
+    if kind is None and shutil.which("file"):
+        try:
+            r = subprocess.run(["file", "-b", detail], capture_output=True, text=True, timeout=10)
+            kind = (r.stdout or "").strip() or None
+        except subprocess.SubprocessError:
+            pass
+    return {"ok": True, "result": {"type": kind or "unknown", "magic_hex": head[:8].hex()},
+            "note": "identified by magic bytes (read-only)"}
+
+
+# ---------------------------------------------------------------------------------------------
+# active recon (AUTHORIZED targets only; gated exactly like nmap) + read-only device inspection
+# ---------------------------------------------------------------------------------------------
+def masscan_scan(config, target, confirmed=False):
+    proceed, resp = _gate_target(config, "masscan_scan", target, confirmed)
+    if not proceed:
+        return resp
+    if not shutil.which("masscan"):
+        audit("error", "masscan_scan", target, "not installed")
+        return {"ok": False, "error": "masscan is not installed"}
+    host = _host_of(target)
+    cmd = ["masscan", host, "-p", "1-1000", "--rate", "1000"]
+    audit("executed", "masscan_scan", target, " ".join(cmd))
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=SCAN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "masscan timed out"}
+    return {"ok": r.returncode == 0, "result": (r.stdout or "")[:8000],
+            "error": (r.stderr or "").strip()[:400] or None}
+
+
+def ffuf_discover(config, target, wordlist=None, confirmed=False):
+    proceed, resp = _gate_target(config, "ffuf_discover", target, confirmed)
+    if not proceed:
+        return resp
+    if not shutil.which("ffuf"):
+        audit("error", "ffuf_discover", target, "not installed")
+        return {"ok": False, "error": "ffuf is not installed"}
+    wl = wordlist or "/usr/share/wordlists/dirb/common.txt"
+    if not os.path.isfile(wl):
+        return {"ok": False, "error": f"wordlist not found: {wl} (pass 'wordlist')"}
+    url = (target if "://" in target else "http://" + target).rstrip("/") + "/FUZZ"
+    cmd = ["ffuf", "-u", url, "-w", wl, "-mc", "200,204,301,302,307,401,403", "-s"]
+    audit("executed", "ffuf_discover", target, " ".join(cmd))
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=SCAN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ffuf timed out"}
+    return {"ok": r.returncode == 0, "result": (r.stdout or "")[:8000],
+            "error": (r.stderr or "").strip()[:400] or None}
+
+
+def adb_devices(config, confirmed=False):
+    off = _need_group(config)
+    if off:
+        return off
+    if not shutil.which("adb"):
+        return {"ok": False, "error": "adb is not installed"}
+    try:
+        r = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=15)
+    except subprocess.SubprocessError:
+        return {"ok": False, "error": "adb failed"}
+    devices = [ln.split("\t")[0] for ln in (r.stdout or "").splitlines()[1:] if "\t" in ln]
+    return {"ok": True, "result": {"devices": devices, "count": len(devices)},
+            "note": "connected ADB devices (read-only listing)"}
+
+
 DISPATCH = {
     "url_info": lambda c, a, cf: url_info(c, a.get("url", ""), cf),
     "qr_decode": lambda c, a, cf: qr_decode(c, a.get("path", ""), cf),
     "apk_analyze": lambda c, a, cf: apk_analyze(c, a.get("path", ""), cf),
     "pcap_analyze": lambda c, a, cf: pcap_analyze(c, a.get("path", ""), cf),
     "nmap_scan": lambda c, a, cf: nmap_scan(c, a.get("target", ""), cf),
+    "hash_file": lambda c, a, cf: hash_file(c, a.get("path", ""), cf),
+    "strings_extract": lambda c, a, cf: strings_extract(
+        c, a.get("path", ""), int(a.get("min_len", 4) or 4), cf),
+    "file_type": lambda c, a, cf: file_type(c, a.get("path", ""), cf),
+    "masscan_scan": lambda c, a, cf: masscan_scan(c, a.get("target", ""), cf),
+    "ffuf_discover": lambda c, a, cf: ffuf_discover(c, a.get("target", ""), a.get("wordlist"), cf),
+    "adb_devices": lambda c, a, cf: adb_devices(c, cf),
 }
 
 
