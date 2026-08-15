@@ -90,12 +90,21 @@ def build_report(data: dict) -> str:
       + (": " + ", ".join(r["id"] for r in blocks) if blocks else ""))
     A("- reminder: verification catches MECHANICAL defects, not subtle wrong reasoning — it "
       "complements the judge, it does not replace it.\n")
+    if data.get("rag") and any("kept_after_gate" in r for r in rows):
+        grounded = [r for r in rows if r.get("grounded")]
+        A("## Relevance gate (retrieval quality)\n")
+        A(f"- items where a passage survived the gate and grounded the answer: "
+          f"{len(grounded)}/{len(rows)}")
+        A("- the rest deferred to the model's own knowledge (gate found nothing directly relevant); "
+          "on a strong base that is the safe default v3 established.\n")
     A("## Per-item\n")
-    A("| id | category | score | verdict | detail |")
-    A("|---|---|--:|---|---|")
+    A("| id | category | score | verdict | grounded | detail |")
+    A("|---|---|--:|---|:--:|---|")
     for r in rows:
         sc = "—" if r["score"] is None else f"{r['score']:.2f}"
-        A(f"| {r['id']} | {r['category']} | {sc} | {r['verify_verdict']} | {r['judge_detail']} |")
+        g = ("—" if not data.get("rag") else
+             (f"{r.get('kept_after_gate', '?')}/{r.get('retrieved', '?')}"))
+        A(f"| {r['id']} | {r['category']} | {sc} | {r['verify_verdict']} | {g} | {r['judge_detail']} |")
     c = data["cost"]
     A(f"\n## Cost\n- avg answer {c['mean_answer_tokens']:.0f} tok; "
       f"{c['mean_latency_s']} s/item (answer+judge); peak {c['peak_vram_gb']} GB")
@@ -123,6 +132,7 @@ def main() -> int:
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from training.patches import apply_all
     from verification.verify import verify
+    from rag.relevance import gate_relevance
     sys.path.insert(0, SECV3_DIR)
     from build_secv3 import grade_secv3
 
@@ -176,10 +186,15 @@ def main() -> int:
     torch.cuda.reset_peak_memory_stats()
     results = []
     for n, item in enumerate(items, 1):
-        prompt, hits = item["prompt"], None
+        prompt, hits, retrieved_n = item["prompt"], None, 0
         if retriever:
             store, build_prompt = retriever
             hits = store.search(item["prompt"], k=args.k)
+            retrieved_n = len(hits)
+            # relevance gate: keep only passages that actually address THIS question. On held-out
+            # topics this drops the tangential doc (the XXE 0.319 web-app case) so the model answers
+            # from its strong own knowledge instead of being dragged wrong. One short judge call.
+            hits = gate_relevance(item["prompt"], hits, lambda p: generate(p, 96)[0])
             prompt = build_prompt(item["prompt"], hits)
 
         answer, a_tok, a_lat = generate(prompt, args.max_new_tokens)
@@ -196,15 +211,20 @@ def main() -> int:
         score, detail = grade_secv3(item, answer, judge_fn)
         report = verify(answer, hits=hits, tools_ran=None)
 
+        kept_n = len(hits) if hits else 0
+        grounding = (f"{kept_n}/{retrieved_n} kept" if retriever else "no-rag")
         results.append({
             "id": item["id"], "domain": item["domain"], "category": item["category"],
             "score": score, "judge_detail": detail,
             "verify_verdict": report.verdict,
             "verify_findings": [str(f) for f in report.findings],
+            "retrieved": retrieved_n, "kept_after_gate": kept_n,
+            "grounded": kept_n > 0,
             "output": answer, "answer_tokens": a_tok,
             "latency_s": round(a_lat + j_stat["lat"], 2)})
         sc = "  —" if score is None else f"{score:.2f}"
-        print(f"  [{n}/{len(items)}] {item['category']:14} {sc}  {report.verdict:7}  {detail}")
+        print(f"  [{n}/{len(items)}] {item['category']:14} {sc}  {report.verdict:7}  "
+              f"[{grounding}]  {detail}")
 
     peak = torch.cuda.max_memory_allocated() / 1e9
     data = {"name": "secv3_" + ("rag" if args.rag else "base"), "model": lock["model"],
