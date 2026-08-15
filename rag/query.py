@@ -42,18 +42,34 @@ MIN_SCORE = 0.30          # cosine below this = no genuine match; abstain rather
 # but the model must still answer completely from its own expertise, preferring the context where
 # they disagree. Abstention on genuinely-unknown material is preserved by build_prompt's NO_CONTEXT
 # branch (retrieval score < MIN_SCORE), not by gagging the model's knowledge on every answer.
+# Grounding contract, now RELEVANCE-AWARE. Security Benchmark v3 (held-out) exposed the failure a
+# blanket "prefer the context" caused: on an XXE question the nearest doc was web_application_
+# security.md (XSS/CSRF/SQLi — NOT XXE) scoring just over the floor at 0.319; grounding on it and
+# preferring it dragged a correct answer wrong (1.00 -> 0.17). The floor can tell "some security
+# doc" from "nothing", but not "on-topic" from "same broad topic". So the model must judge
+# relevance itself and DECLINE to be dragged by an off-topic document.
 GROUNDED_SYSTEM = (
-    "Use the numbered reference context below as your authoritative source, and cite each fact you "
-    "take from it as [n]. The context is curated reference, not the limit of what is true: also "
-    "draw on your own expert knowledge to give a COMPLETE answer, including relevant specifics the "
-    "context omits — a named CVE, an exact command, a version detail — when you are confident in "
-    "them. Where your knowledge and the context conflict, trust the context and say so. Do not "
-    "invent facts you are unsure of; if neither the context nor your confident knowledge covers "
-    "part of the question, say that plainly rather than guessing."
+    "First judge whether the reference context below actually addresses THIS question. "
+    "If it does: use it as your authoritative source, cite each fact you take from it as [n], and "
+    "where your knowledge and the on-point context conflict, trust the context and say so. "
+    "If the context is about a related but DIFFERENT topic and does not directly cover the "
+    "question, do NOT force your answer to fit it — rely on your own expert knowledge and note that "
+    "the retrieved context was not directly on point. "
+    "Either way, draw on your own expertise to be COMPLETE, include relevant specifics the context "
+    "omits — a named CVE, an exact command, a version detail — when you are confident, and never "
+    "invent facts you are unsure of; if part of the question is covered by neither the context nor "
+    "your confident knowledge, say so plainly."
 )
+# When retrieval finds nothing relevant, DEFER to parametric knowledge — do not gag it. v3 showed
+# the old text ("say you don't have this in your documents, rather than answering from memory")
+# talking the base model OUT of a pickle-RCE answer it knew perfectly (1.00 -> 0.00). A capable
+# model should answer from its own knowledge when the KB is silent, and flag that it is ungrounded
+# so the verification layer / operator can check it — not refuse, and not force in off-topic snippets.
 NO_CONTEXT = (
-    "No relevant context was found in the knowledge base for this question. Tell the user you do "
-    "not have information on this in your documents, rather than answering from memory."
+    "The knowledge base returned nothing directly relevant to this question. Do not force the "
+    "off-topic snippets into your answer, and do not refuse. Answer from your own expert knowledge, "
+    "but state clearly that this answer is NOT grounded in the retrieved documents so it can be "
+    "verified."
 )
 
 
