@@ -39,7 +39,8 @@ def main() -> int:
     results = cap.get("results", [])
     task = cap.get("task", "Interpret these security tool results.")
     print("=" * 74)
-    print(f"BRIDGE — Moonlight interprets REAL recon of {cap.get('target', '?')}")
+    print(f"BRIDGE — the model interprets REAL recon of {cap.get('target', '?')} "
+          f"(model set by MODEL_LOCK)")
     print(f"{len(results)} tool result(s) captured locally; the model reasons over them here.")
     print("=" * 74)
     for r in results:
@@ -91,7 +92,7 @@ def main() -> int:
                     tool_results=results)
 
     print("\n" + "=" * 74)
-    print("MOONLIGHT'S ANALYSIS (over the real tool output):")
+    print(f"{lock['model']} — ANALYSIS (over the real tool output):")
     print("=" * 74)
     print(analysis)
     print("\n" + "-" * 74)
