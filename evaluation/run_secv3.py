@@ -117,6 +117,8 @@ def build_report(data: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rag", help="security index dir to retrieve context from")
+    ap.add_argument("--model", help="model to run: alias (moonlight, qwen, qwen-14b) or a lock "
+                    "file name; default = MODEL_LOCK env or the frozen Moonlight baseline")
     ap.add_argument("--report", help="rebuild report from an existing results.json (CPU)")
     ap.add_argument("--max-new-tokens", type=int, default=640)
     ap.add_argument("--judge-tokens", type=int, default=256)
@@ -140,7 +142,7 @@ def main() -> int:
         sys.exit("transformers 5.x cannot quantise this model; install 4.57.6.")
     apply_all(verbose=False)
     from serving.model_spec import load_lock
-    lock = load_lock()
+    lock = load_lock(args.model)
     items = load_items()
 
     retriever = None

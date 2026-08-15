@@ -25,11 +25,32 @@ import os
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LOCK = "MODEL_SPEC.lock.json"
 
+# Friendly names -> lock files, so `--model qwen` works. Unknown names fall back to
+# MODEL_SPEC.<name>.lock.json, and an explicit *.lock.json path is used as-is.
+ALIASES = {
+    "moonlight": "MODEL_SPEC.lock.json",
+    "baseline": "MODEL_SPEC.lock.json",
+    "qwen": "MODEL_SPEC.qwen25-coder-14b.lock.json",
+    "qwen-coder": "MODEL_SPEC.qwen25-coder-14b.lock.json",
+    "qwen-14b": "MODEL_SPEC.qwen25-14b.lock.json",
+}
+
+
+def resolve(name: str | None) -> str | None:
+    """A friendly --model value -> a lock file name (not a path). None stays None."""
+    if not name:
+        return None
+    if name in ALIASES:
+        return ALIASES[name]
+    if name.endswith(".lock.json"):
+        return name
+    return f"MODEL_SPEC.{name}.lock.json"
+
 
 def lock_path(explicit: str | None = None) -> str:
-    """Resolve the lock file: explicit arg > MODEL_LOCK env > the frozen baseline. Relative names
-    are resolved against the repo root."""
-    name = explicit or os.environ.get("MODEL_LOCK") or DEFAULT_LOCK
+    """Resolve the lock file: explicit (alias/name/path) > MODEL_LOCK env > the frozen baseline.
+    Relative names are resolved against the repo root."""
+    name = resolve(explicit) or os.environ.get("MODEL_LOCK") or DEFAULT_LOCK
     return name if os.path.isabs(name) else os.path.join(HERE, name)
 
 
