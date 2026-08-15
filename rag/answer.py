@@ -99,6 +99,14 @@ def main() -> int:
     print(answer)
     if best >= MIN_SCORE:
         print(f"\nsources: {', '.join(sorted({h['source'] for h in hits if h['score']>=MIN_SCORE}))}")
+
+    # ---- verification layer: detect mistakes instead of hiding them ----------
+    from verification.verify import verify
+    report = verify(answer, hits=hits, tools_ran=None)   # answer.py runs no tools
+    print("\n" + "-" * 74)
+    print(report.summary())
+    if not report.ok:
+        print("\n[!] verification flagged a likely DEFECT above — do not trust this answer as-is.")
     return 0
 
 
