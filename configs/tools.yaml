@@ -1,0 +1,37 @@
+# Tool permissions for the MCP layer. DENY BY DEFAULT.
+#
+# The model can only do what is enabled AND in scope here. Read-only tools are on; anything that
+# writes, deletes, or runs a shell stays OFF until you turn it on deliberately, and even then it
+# is scoped. This is the "least-privilege, never unrestricted" rule from the project spec, made
+# concrete: the model is a butler with keys to specific rooms, not a stranger with root.
+#
+# Paths use ~ for your home directory and are resolved (symlinks and .. included) before any
+# check, so "allowed/../../etc" cannot escape an allowed root.
+
+filesystem_read:
+  enabled: true
+  allowed_paths:
+    - ~/Desktop/LLM
+    - ~/Desktop
+
+git_inspect:            # read-only git: status, log, diff, show. No commit/push/checkout.
+  enabled: true
+  allowed_repos:
+    - ~/Desktop/LLM
+
+# ------------------------------------------------------------------------------------------------
+# NOT ENABLED YET. The framework supports these, but they stay off until you choose to enable
+# them, scoped. Start read-only; add write/exec only when you trust the loop.
+# ------------------------------------------------------------------------------------------------
+filesystem_write:
+  enabled: false
+  allowed_paths: []     # e.g. ~/Desktop/LLM/scratch — never a whole home directory
+
+terminal:
+  enabled: false
+  allowed_commands:     # first token of the command must be in this list
+    - python
+    - git
+
+python_exec:
+  enabled: false
