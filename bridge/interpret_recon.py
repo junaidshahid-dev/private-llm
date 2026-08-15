@@ -62,7 +62,8 @@ def main() -> int:
     if int(transformers.__version__.split(".")[0]) >= 5:
         sys.exit("transformers 5.x cannot quantise this model; install 4.57.6.")
     apply_all(verbose=False)
-    lock = json.load(open(os.path.join(HERE, "MODEL_SPEC.lock.json"), encoding="utf-8"))
+    from serving.model_spec import load_lock
+    lock = load_lock()
     q = lock["quantization"]
     bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                              bnb_4bit_use_double_quant=q["double_quant"],

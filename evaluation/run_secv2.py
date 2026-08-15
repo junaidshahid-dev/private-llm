@@ -98,7 +98,8 @@ def main() -> int:
     if int(transformers.__version__.split(".")[0]) >= 5:
         sys.exit("transformers 5.x cannot quantise this model; install 4.57.6.")
     apply_all(verbose=False)
-    lock = json.load(open(os.path.join(HERE, "MODEL_SPEC.lock.json"), encoding="utf-8"))
+    from serving.model_spec import load_lock
+    lock = load_lock()
     items = load_items()
 
     retriever = None
