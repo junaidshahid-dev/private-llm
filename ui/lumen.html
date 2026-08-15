@@ -1,0 +1,269 @@
+<title>Lumen</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Lumen — a calm, ambient interface for the private assistant.
+     Deliberately single-world (dark): a glowing gyroscopic core only reads on a dark ground.
+     Every colour is painted explicitly from a token, so the page holds on any host ground. */
+  :root{
+    --ground:#070c16; --ground-2:#0b1120; --surface:#101a2e; --surface-2:#16223a;
+    --line:#1d2b47;
+    --core:#6fe6d4; --core-deep:#2f9e93; --warm:#e8c39e;
+    --text:#d9e3f2; --muted:#8494b0; --faint:#586a8b;
+    --good:#7fdca0; --radius:16px;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
+    --maxw:760px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:
+      radial-gradient(1200px 700px at 50% -10%, #0e1a30 0%, transparent 60%),
+      radial-gradient(900px 600px at 50% 120%, #0a1424 0%, transparent 55%),
+      var(--ground);
+    color:var(--text); font-family:var(--sans); line-height:1.55;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  .app{min-height:100%; display:flex; flex-direction:column; max-width:var(--maxw);
+    margin:0 auto; padding:0 20px}
+
+  /* header */
+  header{display:flex; align-items:center; justify-content:space-between;
+    padding:22px 2px 10px}
+  .brand{display:flex; align-items:center; gap:12px}
+  .brand .mark{width:26px; height:26px; border-radius:8px; position:relative;
+    background:linear-gradient(150deg,var(--core) 0%, var(--core-deep) 100%);
+    box-shadow:0 0 18px -2px var(--core-deep)}
+  .brand .mark::after{content:""; position:absolute; inset:7px; border-radius:50%;
+    background:var(--ground); box-shadow:inset 0 0 6px #000a}
+  .brand h1{font-size:19px; letter-spacing:.32em; font-weight:600; margin:0;
+    text-transform:uppercase}
+  .status{font-family:var(--mono); font-size:11px; color:var(--muted);
+    letter-spacing:.12em; display:flex; align-items:center; gap:7px}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--good);
+    box-shadow:0 0 8px var(--good); animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+
+  /* the core */
+  .stage{display:flex; flex-direction:column; align-items:center; padding:8px 0 2px;
+    transition:padding .6s ease}
+  .stage.compact{padding:0}
+  canvas#core{width:300px; height:300px; display:block; transition:all .6s ease}
+  .stage.compact canvas#core{width:132px; height:132px}
+  .greeting{text-align:center; margin:6px 0 0; max-width:44ch}
+  .greeting h2{font-size:26px; font-weight:600; letter-spacing:-.01em; margin:0 0 6px;
+    text-wrap:balance}
+  .greeting p{color:var(--muted); font-size:15px; margin:0}
+  .stage.compact .greeting{display:none}
+
+  /* conversation */
+  .thread{flex:1; display:flex; flex-direction:column; gap:18px; padding:20px 2px 8px;
+    overflow-y:auto}
+  .msg{display:flex; gap:12px; max-width:100%; animation:rise .45s cubic-bezier(.2,.7,.3,1)}
+  @keyframes rise{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
+  .msg .who{font-family:var(--mono); font-size:10px; letter-spacing:.16em; color:var(--faint);
+    text-transform:uppercase; padding-top:5px; min-width:52px}
+  .msg .body{background:var(--surface); border:1px solid var(--line);
+    border-radius:14px; padding:12px 15px; font-size:15px; max-width:calc(100% - 68px)}
+  .msg.user{flex-direction:row-reverse}
+  .msg.user .who{text-align:right}
+  .msg.user .body{background:linear-gradient(180deg,#15263f,#122036);
+    border-color:#25406a}
+  .msg.lumen .body{background:linear-gradient(180deg,var(--surface),#0e1830)}
+  .thinking{color:var(--muted); font-family:var(--mono); font-size:12.5px;
+    letter-spacing:.06em}
+  .thinking b{color:var(--core); font-weight:500}
+  .sources{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px}
+  .chip{font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+    color:var(--core); background:#0e2b2a; border:1px solid #1c4a45;
+    padding:3px 8px; border-radius:20px}
+  .chip.abstain{color:var(--warm); background:#2a2115; border-color:#4a3a20}
+
+  /* input */
+  .composer{position:sticky; bottom:0; padding:12px 0 16px; background:
+    linear-gradient(180deg,transparent, var(--ground) 32%)}
+  .field{display:flex; align-items:center; gap:10px; background:var(--surface);
+    border:1px solid var(--line); border-radius:var(--radius); padding:8px 8px 8px 16px;
+    box-shadow:0 0 0 1px #0004, 0 18px 40px -24px var(--core-deep);
+    transition:border-color .3s, box-shadow .3s}
+  .field:focus-within{border-color:#2b6f68;
+    box-shadow:0 0 0 1px #0004, 0 0 34px -10px var(--core-deep)}
+  .field input{flex:1; background:none; border:none; outline:none; color:var(--text);
+    font-family:var(--sans); font-size:15px}
+  .field input::placeholder{color:var(--faint)}
+  .send{width:40px; height:40px; border-radius:11px; border:none; cursor:pointer;
+    background:linear-gradient(150deg,var(--core),var(--core-deep)); color:#04211d;
+    display:grid; place-items:center; transition:transform .15s, filter .2s}
+  .send:hover{filter:brightness(1.08)} .send:active{transform:scale(.94)}
+  .send svg{width:18px; height:18px}
+
+  /* systems rail */
+  .systems{display:flex; flex-wrap:wrap; gap:8px; justify-content:center;
+    padding:2px 0 22px}
+  .pill{font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--muted);
+    background:var(--surface-2); border:1px solid var(--line); border-radius:20px;
+    padding:5px 11px; display:flex; gap:7px; align-items:center}
+  .pill span{color:var(--text)} .pill i{color:var(--core-deep); font-style:normal}
+
+  .suggest{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding:2px 0 6px}
+  .suggest button{font-family:var(--sans); font-size:13px; color:var(--muted); cursor:pointer;
+    background:transparent; border:1px solid var(--line); border-radius:20px; padding:7px 13px;
+    transition:.2s}
+  .suggest button:hover{color:var(--text); border-color:#2b6f68}
+  :focus-visible{outline:2px solid var(--core); outline-offset:2px}
+  @media (max-width:520px){ canvas#core{width:240px;height:240px} .greeting h2{font-size:22px} }
+  @media (prefers-reduced-motion:reduce){ *{animation-duration:.01ms!important} }
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="mark"></div>
+      <h1>Lumen</h1>
+    </div>
+    <div class="status"><span class="dot"></span> SYSTEM ONLINE</div>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="core" width="600" height="600" aria-hidden="true"></canvas>
+    <div class="greeting">
+      <h2>Good to see you.</h2>
+      <p>Grounded in your documents, honest about what it doesn&rsquo;t know.</p>
+    </div>
+  </div>
+
+  <div class="thread" id="thread"></div>
+
+  <div class="suggest" id="suggest">
+    <button data-q="What attention mechanism does Moonlight use?">Moonlight&rsquo;s attention?</button>
+    <button data-q="What does the mcp.server.turbo_fastmcp module do?">A module that doesn&rsquo;t exist</button>
+    <button data-q="What can you do?">What can you do?</button>
+  </div>
+
+  <div class="composer">
+    <div class="field">
+      <input id="input" type="text" autocomplete="off"
+        placeholder="Ask Lumen anything about your project&hellip;" aria-label="Message">
+      <button class="send" id="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="systems">
+    <div class="pill"><i>MODEL</i> <span>Moonlight-16B</span></div>
+    <div class="pill"><i>POLICY</i> <span>capability_first</span></div>
+    <div class="pill"><i>RAG</i> <span>grounded</span></div>
+    <div class="pill"><i>MCP</i> <span>read-only</span></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---------- the ambient core: a breathing gyroscope, drawn on canvas ----------
+  const cv = document.getElementById("core"), ctx = cv.getContext("2d");
+  const DPR = Math.min(window.devicePixelRatio||1, 2);
+  function size(){ cv.width = 600*DPR; cv.height = 600*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); }
+  size();
+  const reduce = matchMedia("(prefers-reduced-motion:reduce)").matches;
+  let t=0, energy=0, targetEnergy=0;                 // energy: 0 calm … 1 thinking
+  const rings=[{r:150,ry:.42,s:.25,w:2.2,gap:.55},
+               {r:118,ry:.68,s:-.4,w:1.6,gap:.4},
+               {r:186,ry:.30,s:.16,w:1.2,gap:.7}];
+  const parts=Array.from({length:34},(_,i)=>({a:Math.random()*6.28,
+    r:70+Math.random()*130, sp:(.2+Math.random()*.5)*(Math.random()<.5?-1:1),
+    z:Math.random()}));
+  function glow(x,y,r,c,a){ const g=ctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,c.replace(")",","+a+")").replace("rgb","rgba"));
+    g.addColorStop(1,"rgba(10,20,32,0)"); ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
+  function draw(){
+    t += reduce?0:0.016; energy += (targetEnergy-energy)*0.06;
+    const cx=300, cy=300; ctx.clearRect(0,0,600,600);
+    const breathe = 1 + Math.sin(t*0.9)*0.03 + energy*0.06;
+    // ambient halo
+    glow(cx,cy,205*breathe,"rgb(47,158,147)",0.16+energy*0.12);
+    glow(cx,cy,120*breathe,"rgb(111,230,212)",0.10+energy*0.14);
+    // gyroscope rings
+    ctx.save(); ctx.translate(cx,cy);
+    rings.forEach((rg,i)=>{
+      const rot = t*rg.s*(1+energy*1.4) + i*1.1;
+      const ry = rg.ry + Math.sin(t*0.5+i)*0.05;
+      ctx.save(); ctx.rotate(rot); ctx.scale(1,ry);
+      ctx.lineWidth=rg.w;
+      const grad=ctx.createLinearGradient(-rg.r,0,rg.r,0);
+      grad.addColorStop(0,"rgba(111,230,212,0)");
+      grad.addColorStop(.5,"rgba(111,230,212,"+(0.5+energy*0.4)+")");
+      grad.addColorStop(1,"rgba(111,230,212,0)");
+      ctx.strokeStyle=grad;
+      ctx.beginPath(); ctx.arc(0,0,rg.r*breathe,rg.gap, rg.gap+Math.PI*2*(0.72)); ctx.stroke();
+      ctx.restore();
+    });
+    ctx.restore();
+    // orbiting particles
+    parts.forEach(p=>{ p.a += (reduce?0:0.004)*p.sp*(1+energy*2);
+      const rr=p.r*breathe, x=cx+Math.cos(p.a)*rr, y=cy+Math.sin(p.a)*rr*0.55;
+      const s=0.6+p.z*1.6; ctx.fillStyle="rgba(150,240,224,"+(0.25+p.z*0.5)+")";
+      ctx.beginPath(); ctx.arc(x,y,s,0,6.2832); ctx.fill(); });
+    // core
+    glow(cx,cy,40*breathe,"rgb(200,255,246)",0.9);
+    ctx.fillStyle="#eafffb"; ctx.beginPath(); ctx.arc(cx,cy,4.5*breathe,0,6.2832); ctx.fill();
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  // ---------- conversation (front-end demo — real content, no backend yet) ----------
+  const thread=document.getElementById("thread"), input=document.getElementById("input"),
+        stage=document.getElementById("stage"), suggest=document.getElementById("suggest");
+  const KNOW={
+    "attention":{a:"Moonlight-16B-A3B is built on DeepSeek-V3, which uses <b>Multi-head Latent "+
+      "Attention (MLA)</b> — not plain self-attention. MLA compresses the key/value "+
+      "projections into a latent space, which is why the model exposes "+
+      "<code>kv_a_proj_with_mqa</code> and <code>kv_b_proj</code> instead of the usual "+
+      "<code>k_proj</code> / <code>v_proj</code>.", src:["project_facts.md"]},
+    "turbo_fastmcp":{a:"I don’t have information on <code>mcp.server.turbo_fastmcp</code> in "+
+      "your documents, and I won’t invent it. If it’s a real package, point me at its "+
+      "source and I’ll index it.", abstain:true},
+    "context":{a:"Moonlight-16B-A3B-Instruct supports a context length of <b>8192 tokens</b>.",
+      src:["project_facts.md"]},
+    "default":{a:"This is the Lumen interface — the front end for your private assistant "+
+      "(base Moonlight + capability_first policy + retrieval + read-only tools). The chat here "+
+      "is a design preview; wire it to <code>rag/answer.py</code> and it answers for real, "+
+      "grounded in whatever documents you index.", src:["README.md"]}
+  };
+  function esc(s){return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+  function add(who,html){ const m=document.createElement("div"); m.className="msg "+who;
+    m.innerHTML='<div class="who">'+(who==="user"?"You":"Lumen")+'</div><div class="body">'+html+'</div>';
+    thread.appendChild(m); thread.scrollIntoView(false);
+    m.scrollIntoView({behavior:"smooth",block:"end"}); return m; }
+  function pick(q){ const s=q.toLowerCase();
+    if(s.includes("attention")||s.includes("mla"))return KNOW.attention;
+    if(s.includes("turbo_fastmcp")||s.includes("turbofastmcp"))return KNOW.turbo_fastmcp;
+    if(s.includes("context")||s.includes("token"))return KNOW.context;
+    return KNOW.default; }
+  let busy=false;
+  function ask(q){ if(busy||!q.trim())return; busy=true; suggest.style.display="none";
+    stage.classList.add("compact"); add("user",esc(q)); input.value="";
+    targetEnergy=1;
+    const think=add("lumen",'<div class="thinking"><b>retrieving</b> from your documents…</div>');
+    const hit=pick(q);
+    setTimeout(()=>{
+      think.querySelector(".thinking").innerHTML = hit.abstain
+        ? 'nothing above the relevance threshold — <b>abstaining</b>'
+        : '<b>'+hit.src.length+'</b> source'+(hit.src.length>1?"s":"")+' matched — grounding answer';
+    },520);
+    setTimeout(()=>{ targetEnergy=0;
+      let html=hit.a.replace(/<code>/g,'<code style="font-family:var(--mono);font-size:.9em;color:var(--core)">');
+      if(hit.abstain){ html+='<div class="sources"><span class="chip abstain">no source · abstained</span></div>'; }
+      else if(hit.src){ html+='<div class="sources">'+hit.src.map(s=>'<span class="chip">'+s+'</span>').join("")+'</div>'; }
+      think.querySelector(".body").innerHTML=html; busy=false;
+    }, 1500);
+  }
+  document.getElementById("send").onclick=()=>ask(input.value);
+  input.addEventListener("keydown",e=>{ if(e.key==="Enter")ask(input.value); });
+  suggest.querySelectorAll("button").forEach(b=>b.onclick=()=>ask(b.dataset.q));
+  input.focus();
+})();
+</script>
