@@ -1,0 +1,25 @@
+# Lab-only authorization for the MCP security-tool gate.
+#
+# These are the ONLY targets the assistant may ACTIVELY test. Target CLASS never implies
+# authorization — this list does (see mcp_layer/security.py). Every entry here is loopback or
+# lab-private; nothing public. verify_lab.py refuses to green-light an active test unless the
+# target both appears here AND resolves to a lab/loopback/private address.
+#
+# To enable: copy this block into configs/tools.yaml under
+#   security_tools:
+#     enabled: true
+#     require_confirmation: true
+#     authorized_targets: [ ... these entries ... ]
+# (Or keep this file as the canonical lab scope and paste when you run a lab session.)
+
+authorized_targets:
+  - id: lab-web-host
+    match: "127.0.0.1"
+    note: "DVWA web-target on the host loopback (published port 8080)"
+    # expires: "2026-12-31T00:00:00Z"   # optional; the gate treats expired entries as inactive
+  - id: lab-web-container
+    match: "172.28.0.10"
+    note: "DVWA web-target on the isolated labnet"
+  - id: lab-web-name
+    match: "web-target"
+    note: "DVWA by container hostname (from inside the operator container)"

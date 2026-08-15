@@ -1,0 +1,38 @@
+# Controlled security lab — an isolated network with a deliberately-vulnerable web target and a
+# separate operator/tool container. This is the ONLY place the assistant should run active tools.
+#
+# Isolation: the web target is published to the HOST LOOPBACK ONLY (127.0.0.1:8080) — never to the
+# LAN or the Internet — and both containers sit on a private labnet. For stricter isolation (no
+# outbound at all) set `internal: true` on labnet and run tools from inside the operator container
+# via `docker exec` instead of from the host (see README).
+#
+# Nothing here is exposed publicly. Bring it up on your own machine; tear it down with reset_lab.py.
+
+services:
+  web-target:
+    image: vulnerables/web-dvwa           # deliberately vulnerable web app (DVWA)
+    container_name: lab-web-target
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"               # host LOOPBACK only — not 0.0.0.0
+    networks:
+      labnet:
+        ipv4_address: 172.28.0.10
+
+  operator:
+    image: kalilinux/kali-rolling         # has nmap/ffuf/masscan available via apt (see operator/)
+    build: ./operator
+    container_name: lab-operator
+    depends_on: [web-target]
+    command: ["sleep", "infinity"]        # stays up; exec tools into it for the isolated variant
+    networks:
+      labnet:
+        ipv4_address: 172.28.0.5
+
+networks:
+  labnet:
+    driver: bridge
+    # internal: true                      # uncomment for zero outbound; then use docker-exec tools
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
