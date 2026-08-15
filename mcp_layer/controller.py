@@ -60,10 +60,17 @@ SECURITY_METHODOLOGY = (
     "1. Confirm SCOPE and AUTHORISATION for the specific target before proposing any active tool.\n"
     "2. Map the likely ATTACK SURFACE and state a hypothesis to test.\n"
     "3. Propose the minimal RECON tool for that hypothesis; wait for the real result.\n"
-    "4. INTERPRET the actual output — distinguish OBSERVED evidence from INFERENCE, and a real "
-    "finding from a false positive (a version banner is not proof; confirm before claiming).\n"
-    "5. CORRELATE across results, then choose the next test. Iterate.\n"
-    "6. Only once evidence supports it: state the VULNERABILITY, its ROOT CAUSE and IMPACT, a "
+    "4. INTERPRET the actual output. Separate OBSERVED evidence from INFERENCE, and RANK findings "
+    "by IMPACT: exposed admin/setup/config/status/backup or info-disclosure endpoints FIRST; "
+    "standard files (favicon.ico, robots.txt, images, css) are low signal — do not dwell on them. "
+    "Call out the 2-3 findings that actually matter, not a flat list.\n"
+    "5. VERSION BANNERS: for any banner (e.g. 'Apache 2.4.25'), say whether it is OLD and name the "
+    "class of known issues only if confident — but ALWAYS state the banner is NOT proof (the build "
+    "may be backported/patched) and give the concrete VERIFY step. NEVER call a version vulnerable "
+    "from the banner alone. The same caution applies to any single indicator (an open port, a path "
+    "name): confirm before claiming.\n"
+    "6. CORRELATE across results, then choose the next test. Iterate.\n"
+    "7. Only once evidence supports it: state the VULNERABILITY, its ROOT CAUSE and IMPACT, a "
     "concrete REMEDIATION, and how to VERIFY the fix.\n"
     "Never assert a result a tool did not return; if a tool errors, say so and adjust."
 )
@@ -149,12 +156,17 @@ def execute_proposal(proposal: dict, config=None, operator_ack: bool = False) ->
 
 
 def interpret(question, results, generate, policy_prompt="") -> str:
-    """Feed real tool results back for the model to interpret and correlate."""
-    sysmsg = (policy_prompt + "\n\n" + REASONING_SYSTEM) if policy_prompt else REASONING_SYSTEM
+    """Feed real tool results back for the model to interpret and correlate. Uses the FULL analyst
+    system prompt (behaviour + methodology + tools) so the interpret step applies the same
+    discipline as plan — earlier it used only the base prompt, so the version-banner / impact-
+    ranking rules never reached it."""
+    sysmsg = reasoning_system(None, policy_prompt)
     blocks = "\n\n".join(f"[{i+1}] {r.get('tool','tool')} -> {json.dumps(r.get('result', r))[:2000]}"
                          for i, r in enumerate(results))
     messages = [{"role": "system", "content": sysmsg},
                 {"role": "user", "content":
                  f"{question}\n\nThe operator ran these and gave you the results:\n{blocks}\n\n"
-                 "Interpret them, correlate across sources, and give precise conclusions."}]
+                 "Interpret them and correlate across sources. RANK findings by impact (call out "
+                 "the 2-3 that matter, not a flat list), apply the version-banner caution (a banner "
+                 "is not proof — give the verify step), and end with the single next test to run."}]
     return (generate(messages) or "").strip()

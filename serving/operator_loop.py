@@ -56,7 +56,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("instruction", nargs="*", help="what to ask; prompted if omitted")
     ap.add_argument("--policy", default=None, help="behaviour mode override")
-    ap.add_argument("--max-new-tokens", type=int, default=512)
+    ap.add_argument("--max-new-tokens", type=int, default=768)
     ap.add_argument("--auto-deny", action="store_true",
                     help="deny every proposal automatically (dry run: see the plan, run nothing)")
     ap.add_argument("--yes", action="store_true",

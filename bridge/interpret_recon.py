@@ -30,7 +30,7 @@ DEFAULT_CAPTURE = os.path.join(HERE, "bridge", "recon_capture.json")
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--capture", default=DEFAULT_CAPTURE)
-    ap.add_argument("--max-new-tokens", type=int, default=640)
+    ap.add_argument("--max-new-tokens", type=int, default=1024)
     args = ap.parse_args()
 
     if not os.path.exists(args.capture):
