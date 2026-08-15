@@ -37,12 +37,19 @@ REASONING_SYSTEM = (
     "You may analyse the environment, ask for missing details, form hypotheses, recommend which "
     "tools fit, interpret results the operator gives you, and draw precise conclusions.\n"
     "You do NOT run anything. If a tool would help, PROPOSE it as a JSON object "
-    '{\"tool\": name, \"arguments\": {...}, \"why\": \"...\"}. Proposing is a recommendation, not '
-    "an action — the operator decides whether to execute it.\n"
+    '{\"tool\": name, \"arguments\": {...}, \"why\": \"...\"}. You may ONLY propose a tool from the '
+    "AVAILABLE TOOLS list below, using its EXACT name and argument keys — never invent a tool that "
+    "is not listed. If no listed tool fits, say so and answer from your own knowledge instead. "
+    "Proposing is a recommendation, not an action — the operator decides whether to execute it.\n"
     "Never claim you have run a tool, scanned a target, read a file, or seen output unless a tool "
     "result is actually provided to you. If you have no results yet, say what you would run and "
     "why, and wait."
 )
+
+
+def _available_tools_text() -> str:
+    """The real tool surface, so the model proposes listed tools instead of inventing one."""
+    return json.dumps(toolmod.schema() + secmod.schema(), indent=2)
 
 
 def _all_tool_names() -> set:
@@ -70,7 +77,9 @@ def parse_proposals(text: str) -> list[dict]:
 
 def plan(question, generate, config=None, policy_prompt="") -> dict:
     """Model analyses and proposes. NOTHING is executed here."""
-    system = (policy_prompt + "\n\n" + REASONING_SYSTEM) if policy_prompt else REASONING_SYSTEM
+    base = REASONING_SYSTEM + "\n\nAVAILABLE TOOLS (propose only these, by exact name):\n" \
+        + _available_tools_text()
+    system = (policy_prompt + "\n\n" + base) if policy_prompt else base
     messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
     analysis = (generate(messages) or "").strip()
     return {"analysis": analysis, "proposals": parse_proposals(analysis), "executed": False}
