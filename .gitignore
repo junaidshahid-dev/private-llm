@@ -54,3 +54,6 @@ evaluation/results/*/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# RAG index is a build artifact — regenerate from docs with rag/ingest.py
+rag/index/

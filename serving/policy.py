@@ -22,8 +22,10 @@ import io
 import os
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
-                              line_buffering=True)
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+except (AttributeError, ValueError):  # already reconfigured, or not a real stream
+    pass
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLICY_PATH = os.path.join(HERE, "configs", "behavior_policy.yaml")
 
