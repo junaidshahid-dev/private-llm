@@ -74,9 +74,11 @@ def main() -> int:
             {"text": "Use IMDSv2 to mitigate."}]
     check("citation past the source count warns",
           has(verify("As in [5], block it.", hits=hits), "grounding", "warn"))
-    # a CVE not in the context is INFO (may be correct knowledge), never an error
+    # a CVE not in the context is a WARNING (verify it) but never an ERROR (may be correct knowledge)
     g = verify("This is CVE-2007-2447 in Samba.", hits=hits)
-    check("unsupported specific is INFO, not error", has(g, "grounding", "info") and g.ok)
+    check("unsupported factual claim is WARN, not error",
+          has(g, "grounding", "warn") and g.ok, f"verdict={g.verdict}")
+    check("unsupported claim => verdict WARNING, not BLOCK", g.verdict == "WARNING")
     check("no hits => no grounding noise", not has(verify("anything at all"), "grounding"))
 
     # ---- 5. phantom actions -------------------------------------------------
@@ -90,12 +92,20 @@ def main() -> int:
           not has(verify("You can scan the host with nmap -sV to list services."),
                   "phantom_action"))
 
-    # ---- 6. report semantics ------------------------------------------------
-    print("\n6. report — errors fail the gate, heuristics do not")
-    check("an error makes report.ok False", verify("2 + 2 = 5").ok is False)
-    check("only info/warn keeps report.ok True", verify("CVE-2007-2447", hits=hits).ok is True)
-    check("clean answer is ok and empty", verify("Least privilege limits blast radius.").ok
-          and not verify("Least privilege limits blast radius.").findings)
+    # ---- 6. report semantics: the PASS / WARNING / BLOCK verdict -------------
+    print("\n6. verdict — three non-destructive tiers")
+    check("clean answer => PASS", verify("Least privilege limits blast radius.").verdict == "PASS")
+    check("PASS answer has no findings", not verify("Least privilege limits blast radius.").findings)
+    check("unsupported factual claim => WARNING",
+          verify("CVE-2007-2447", hits=hits).verdict == "WARNING")
+    check("arithmetic error => BLOCK", verify("2 + 2 = 5").verdict == "BLOCK")
+    check("phantom action => BLOCK",
+          verify("I scanned the box.", tools_ran=None).verdict == "BLOCK")
+    check("BLOCK sets ok False", verify("2 + 2 = 5").ok is False)
+    check("WARNING keeps ok True", verify("CVE-2007-2447", hits=hits).ok is True)
+    check("render states the verdict and never claims proof of correctness",
+          "Verification: PASS" in verify("Least privilege wins.").render()
+          and "not proof" in verify("Least privilege wins.").render())
 
     print("\n" + "=" * 74)
     if fails:

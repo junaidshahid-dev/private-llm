@@ -48,9 +48,29 @@ class Finding:
 class Report:
     findings: list[Finding] = field(default_factory=list)
 
+    # The verifier is NON-DESTRUCTIVE: it never edits the answer, it classifies it. A three-tier
+    # verdict, plus the recommended next move, so the SYSTEM decides what to do (regenerate,
+    # retrieve more, run a tool, or present the uncertainty) — the verifier does not act on its own,
+    # which is what keeps a heuristic from becoming a second hallucination source.
+    _NEXT = {
+        "PASS":    "present the answer (no checkable defect found).",
+        "WARNING": "surface the flag; consider retrieving more evidence, running a tool, or "
+                   "presenting the point as unverified before relying on it.",
+        "BLOCK":   "do NOT present as trusted; regenerate, retrieve, run the tool, or hand back "
+                   "for human review.",
+    }
+
+    @property
+    def verdict(self) -> str:
+        if any(f.level == "error" for f in self.findings):
+            return "BLOCK"
+        if any(f.level == "warn" for f in self.findings):
+            return "WARNING"
+        return "PASS"
+
     @property
     def ok(self) -> bool:
-        return not any(f.level == "error" for f in self.findings)
+        return self.verdict != "BLOCK"
 
     @property
     def errors(self) -> list[Finding]:
@@ -59,15 +79,22 @@ class Report:
     def add(self, *fs: Finding) -> None:
         self.findings.extend(fs)
 
-    def summary(self) -> str:
+    def render(self) -> str:
+        """Human-facing block. States the verdict, the findings, and the recommended next move —
+        and never claims that a clean pass proves correctness."""
+        v = self.verdict
+        lines = [f"Verification: {v}"]
         if not self.findings:
-            return "verification: no issues found (note: absence of a flag is not proof of correctness)"
-        by = {}
+            lines.append("  no checkable issue found "
+                         "(absence of a flag is not proof of correctness).")
         for f in self.findings:
-            by.setdefault(f.level, 0)
-            by[f.level] += 1
-        head = ", ".join(f"{n} {lvl}" for lvl, n in sorted(by.items()))
-        return "verification: " + head + "\n" + "\n".join("  " + str(f) for f in self.findings)
+            lines.append("  - " + str(f))
+        lines.append("  next: " + self._NEXT[v])
+        return "\n".join(lines)
+
+    # kept for the CLI / older callers; render() is the richer form
+    def summary(self) -> str:
+        return self.render()
 
 
 # ---- 1. math: recompute arithmetic the answer states ------------------------
@@ -205,16 +232,25 @@ def check_grounding(answer: str, hits: list[dict] | None) -> list[Finding]:
                                f"answer cites [{cit}] but only {n_sources} sources were retrieved",
                                f"[{cit}]"))
 
-    # identifiers the answer asserts (CVE ids, CamelCase, ALLCAPS) that are absent from context
-    ids = set(re.findall(r"\bCVE-\d{4}-\d{3,7}\b", answer))
-    ids |= {t for t in re.findall(r"\b[A-Z][A-Za-z]*(?:[A-Z][A-Za-z]+)+\b", answer)}   # CamelCase
-    ids |= {t for t in re.findall(r"\b[A-Z]{3,}\b", answer) if t not in _STOP}
-    unsupported = sorted({t for t in ids if t.lower() not in ctx})
-    if unsupported:
+    # A specific FACTUAL claim absent from the sources (a CVE id) is a WARNING — the system should
+    # verify it before relying on it. It is NOT an error: after the grounding-contract fix the model
+    # may legitimately supply correct parametric knowledge the context does not cover. The verifier
+    # surfaces; it does not overrule.
+    cves = sorted({c for c in re.findall(r"\bCVE-\d{4}-\d{3,7}\b", answer) if c.lower() not in ctx})
+    if cves:
+        out.append(Finding("warn", "grounding",
+                           "factual claim not found in the retrieved sources (verify before relying "
+                           "- may be correct knowledge, may be invented): " + ", ".join(cves)))
+
+    # Other identifiers (CamelCase, ALLCAPS) absent from context are lower signal -> INFO only, so
+    # warnings stay meaningful rather than firing on every capitalised word.
+    other = {t for t in re.findall(r"\b[A-Z][A-Za-z]*(?:[A-Z][A-Za-z]+)+\b", answer)}   # CamelCase
+    other |= {t for t in re.findall(r"\b[A-Z]{3,}\b", answer) if t not in _STOP}
+    other = sorted({t for t in other if t.lower() not in ctx and not t.startswith("CVE")})
+    if other:
         out.append(Finding("info", "grounding",
-                           "specific terms in the answer are not in the retrieved context (may be "
-                           "correct parametric knowledge, or may be invented — worth a check): "
-                           + ", ".join(unsupported[:8])))
+                           "other specific terms not in the retrieved context (lower signal, worth "
+                           "a glance): " + ", ".join(other[:8])))
     return out
 
 
@@ -256,4 +292,4 @@ def verify(answer: str, hits: list[dict] | None = None,
 if __name__ == "__main__":
     import sys
     txt = sys.stdin.read() if not sys.stdin.isatty() else " ".join(sys.argv[1:])
-    print(verify(txt).summary())
+    print(verify(txt).render())

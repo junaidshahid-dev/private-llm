@@ -100,13 +100,14 @@ def main() -> int:
     if best >= MIN_SCORE:
         print(f"\nsources: {', '.join(sorted({h['source'] for h in hits if h['score']>=MIN_SCORE}))}")
 
-    # ---- verification layer: detect mistakes instead of hiding them ----------
+    # ---- verification layer: classify the answer, never rewrite it -----------
+    # Non-destructive by design: it prints a PASS / WARNING / BLOCK verdict and the recommended
+    # next move; the answer above is shown unaltered. Acting on a BLOCK (regenerate / retrieve /
+    # tool) is the controller's job in Phase 8 — here we surface it for the operator to decide.
     from verification.verify import verify
     report = verify(answer, hits=hits, tools_ran=None)   # answer.py runs no tools
     print("\n" + "-" * 74)
-    print(report.summary())
-    if not report.ok:
-        print("\n[!] verification flagged a likely DEFECT above — do not trust this answer as-is.")
+    print(report.render())
     return 0
 
 
