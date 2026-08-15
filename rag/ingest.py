@@ -29,10 +29,12 @@ sys.path.insert(0, HERE)
 TEXT_EXT = {".md", ".txt", ".py", ".json", ".jsonl", ".rst", ".yaml", ".yml", ".toml",
             ".cfg", ".ini", ".csv", ".html", ".js", ".ts", ".sh", ".sql"}
 # "results" holds the model's OWN generated outputs — including its hallucinations. Indexing
-# those would let RAG retrieve a fabrication as if it were a fact (garbage in, garbage out), so
-# model outputs and logs are never authoritative knowledge and are skipped by default.
+# those would let RAG retrieve a fabrication as if it were a fact (garbage in, garbage out).
+# "evaluation" holds the benchmarks: indexing them would let the model RETRIEVE the benchmark
+# answers, invalidating every score. Neither is authoritative knowledge; both are skipped so the
+# security benchmark can never become RAG (or training) data.
 SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".cache", "hf_cache", "models",
-             "results"}
+             "results", "evaluation"}
 MAX_CHARS = 1200          # ~ 250-300 tokens, comfortably under MiniLM's window
 OVERLAP_PARAS = 1
 

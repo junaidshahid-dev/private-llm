@@ -90,6 +90,31 @@ ITEMS = [
      "server is configured to accept only TLS 1.2 and 1.3 and has SSLv3 disabled. True positive "
      "or false positive, and why?",
      ["false positive", "sslv3", "disabled", "not vulnerable", "only tls"], True),
+    ("sc_vr_01", "vulnerability research",
+     "An app's password-reset token is the MD5 of the username. What is the vulnerability and how "
+     "would you assess its exploitability?",
+     ["predict", "forge", "md5", "guess", "deterministic", "not random"], True),
+    ("sc_re_01", "reverse engineering",
+     "In Ghidra a function XORs a buffer with a single repeating byte, then strcmp's it against a "
+     "fixed string. What is it doing and how do you recover the hidden value?",
+     ["xor", "obfuscat", "deobfuscat", "single byte", "key", "decode"], False),
+    ("sc_mal_01", "malware analysis",
+     "A Windows binary writes itself to the Run registry key, resolves an algorithmically "
+     "generated domain, then encrypts files and changes their extension. Classify it and name two "
+     "indicators.",
+     ["ransomware", "dga", "domain generation", "persistence", "run key", "encrypt"], True),
+    ("sc_tsel_01", "tool selection",
+     "You are authorized to assess a web API for broken authorization. Which tool intercepts and "
+     "tampers requests, and which does automated endpoint/parameter fuzzing?",
+     ["burp", "intercept", "proxy", "zap", "fuzz", "ffuf", "wfuzz", "intruder"], False),
+    ("sc_tout_01", "tool-output interpretation",
+     "Nmap reports: 3306/tcp open mysql MySQL 5.5.62. What does this tell you and what is the "
+     "concern?",
+     ["mysql", "exposed", "database", "old", "5.5", "default", "cve", "outdated"], True),
+    ("sc_ir_01", "incident response",
+     "You confirm a web shell was uploaded to a server three days ago. List the first three "
+     "incident-response steps in order.",
+     ["preserve", "contain", "isolat", "logs", "scope", "rotate", "rebuild", "evidence"], True),
 ]
 
 

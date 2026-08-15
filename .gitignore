@@ -48,6 +48,11 @@ evaluation/results/*/
 !evaluation/results/base/
 !evaluation/results/base/results.json
 
+# The security baseline is also a permanent reference — the number every future change must beat.
+!evaluation/results/seccap_base_v1/
+!evaluation/results/seccap_base_v1/results.json
+!evaluation/results/seccap_base_v1/REPORT.md
+
 # Comparison reports are small, and they are the actual findings.
 !evaluation/results/compare_*.json
 
