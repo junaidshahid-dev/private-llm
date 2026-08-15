@@ -1,0 +1,27 @@
+{
+  "frozen_at": null,
+  "model": "Qwen/Qwen2.5-14B-Instruct",
+  "revision": "main",
+  "revision_note": "pin to the resolved commit hash after the first successful load, for reproducibility",
+  "license_declared": "apache-2.0",
+  "architecture": [
+    "Qwen2ForCausalLM"
+  ],
+  "model_type": "qwen2",
+  "parameters": 14770033664,
+  "context_length": 32768,
+  "trust_remote_code_required": false,
+  "quantization": {
+    "method": "bitsandbytes nf4",
+    "double_quant": true,
+    "compute_dtype": "float16 (T4 has no bf16)"
+  },
+  "notes": {
+    "why": "First swap candidate vs the frozen Moonlight baseline (see BASELINE.md). Chosen for a clean, low-risk swap: DENSE model, so standard bitsandbytes 4-bit with NO MoE dtype patch, NO custom tokenizer, NO trust_remote_code.",
+    "vram_4bit_est_gb": 9,
+    "fits": "single T4 (16GB) with ample headroom (~9GB weights)",
+    "moonlight_specifics_are_noops": "the runners' MoE patch (training.patches.apply_all) and the transformers>=5 guard are harmless for this arch on the pinned transformers 4.57.6 — the patched DeepseekV3 class is simply never instantiated.",
+    "run": "MODEL_LOCK=MODEL_SPEC.qwen25-14b.lock.json python evaluation/run_secv3.py   (and --rag rag/index, and bridge/interpret_recon.py). Compare to the moonlight-baseline runs.",
+    "verify_first": "python scripts/check_quantizable.py  (point it at this lock) to confirm it 4-bit-loads cleanly before benchmarking."
+  }
+}
