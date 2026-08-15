@@ -29,7 +29,21 @@ CONFIG_PATH = os.path.join(HERE, "configs", "tools.yaml")
 def load_config(path: str = CONFIG_PATH) -> dict:
     import yaml
     with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    # Portability: always let the assistant read/inspect ITS OWN repo, wherever it is checked out.
+    # The config's paths are the operator's LOCAL grants (e.g. ~/Desktop/LLM); on another machine
+    # (Kaggle's /kaggle/working/LLM, a CI box) those point nowhere, so the running repo root is
+    # added implicitly. This only widens READ access to the code that is already running; it does
+    # not enable a disabled tool group (check_fs_read/tool_enabled still gate that), and the resolve
+    # -then-contain check still blocks any ../ escape outside the root.
+    for group, key in (("filesystem_read", "allowed_paths"), ("git_inspect", "allowed_repos")):
+        g = cfg.get(group)
+        if isinstance(g, dict):
+            lst = g.get(key) or []
+            if HERE not in lst:
+                lst.insert(0, HERE)
+            g[key] = lst
+    return cfg
 
 
 def _resolve(p: str) -> Path | None:
