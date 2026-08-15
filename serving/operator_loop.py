@@ -59,6 +59,10 @@ def main() -> int:
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--auto-deny", action="store_true",
                     help="deny every proposal automatically (dry run: see the plan, run nothing)")
+    ap.add_argument("--yes", action="store_true",
+                    help="auto-approve READ-ONLY (standard) proposals — for notebooks where the "
+                    "y/N prompt has no keyboard. Security-kind tools are STILL denied and need the "
+                    "interactive gate; tools.yaml permissions still apply.")
     args = ap.parse_args()
 
     instruction = " ".join(args.instruction).strip()
@@ -109,7 +113,15 @@ def main() -> int:
                                  pad_token_id=tok.pad_token_id)
         return tok.decode(out[0][ids.shape[-1]:], skip_special_tokens=True).strip()
 
-    approver = (lambda _p: False) if args.auto_deny else interactive_approver
+    def auto_yes(proposal: dict) -> bool:
+        # notebook-safe: approve read-only standard tools, never a security tool unattended
+        ok = proposal.get("kind", "standard") == "standard"
+        print(f"\n[--yes] {proposal.get('tool')} ({proposal.get('kind','standard')}) -> "
+              f"{'APPROVED (read-only)' if ok else 'DENIED (security tool needs interactive gate)'}")
+        return ok
+
+    approver = (lambda _p: False) if args.auto_deny else (auto_yes if args.yes else
+                                                          interactive_approver)
     record = run_session(instruction, generate, approver,
                          policy_prompt=system_prompt(args.policy))
     print("\n" + "=" * 74)
