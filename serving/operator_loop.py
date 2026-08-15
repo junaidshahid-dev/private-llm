@@ -122,8 +122,18 @@ def main() -> int:
 
     approver = (lambda _p: False) if args.auto_deny else (auto_yes if args.yes else
                                                           interactive_approver)
-    record = run_session(instruction, generate, approver,
-                         policy_prompt=system_prompt(args.policy))
+
+    # Environment awareness: give the model real facts (OS, cwd, installed tools) so it stops
+    # guessing. Raw for the LOCAL model — the Privacy layer redacts only at an external boundary.
+    from env.probe import probe, facts_block
+    policy = system_prompt(args.policy)
+    try:
+        env_facts = facts_block(probe())
+        policy = (env_facts + "\n\n" + policy) if policy else env_facts
+    except Exception as e:                       # enrichment must never block the loop
+        print(f"[env] probe skipped: {e}")
+
+    record = run_session(instruction, generate, approver, policy_prompt=policy)
     print("\n" + "=" * 74)
     print(render_session(record))
     return 0
