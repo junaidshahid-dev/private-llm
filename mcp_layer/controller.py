@@ -52,6 +52,23 @@ REASONING_SYSTEM = (
 )
 
 
+# Security-analyst workflow. Turns the multi-round loop from "here is one command" into staged
+# reasoning: scope -> attack surface -> recon -> interpret -> hypothesise -> test -> correlate ->
+# determine -> impact -> remediate -> verify. Kept short so it guides without dominating the prompt.
+SECURITY_METHODOLOGY = (
+    "When the task is a security assessment, work it like an analyst, one step per round:\n"
+    "1. Confirm SCOPE and AUTHORISATION for the specific target before proposing any active tool.\n"
+    "2. Map the likely ATTACK SURFACE and state a hypothesis to test.\n"
+    "3. Propose the minimal RECON tool for that hypothesis; wait for the real result.\n"
+    "4. INTERPRET the actual output — distinguish OBSERVED evidence from INFERENCE, and a real "
+    "finding from a false positive (a version banner is not proof; confirm before claiming).\n"
+    "5. CORRELATE across results, then choose the next test. Iterate.\n"
+    "6. Only once evidence supports it: state the VULNERABILITY, its ROOT CAUSE and IMPACT, a "
+    "concrete REMEDIATION, and how to VERIFY the fix.\n"
+    "Never assert a result a tool did not return; if a tool errors, say so and adjust."
+)
+
+
 def _available_tools_text() -> str:
     """The real tool surface, so the model proposes listed tools instead of inventing one."""
     return json.dumps(toolmod.schema() + secmod.schema(), indent=2)
@@ -99,9 +116,10 @@ def parse_proposals(text: str) -> list[dict]:
 
 
 def reasoning_system(config=None, policy_prompt="") -> str:
-    """The full analysis-mode system prompt: behaviour + tool surface + environment. Shared by the
-    single-pass plan() and the multi-round session so both drive the model the same way."""
-    base = REASONING_SYSTEM + "\n\nAVAILABLE TOOLS (propose only these, by exact name):\n" \
+    """The full analysis-mode system prompt: behaviour + methodology + tool surface + environment.
+    Shared by the single-pass plan() and the multi-round session so both drive the model the same."""
+    base = REASONING_SYSTEM + "\n\n" + SECURITY_METHODOLOGY \
+        + "\n\nAVAILABLE TOOLS (propose only these, by exact name):\n" \
         + _available_tools_text() + _environment_text(config)
     return (policy_prompt + "\n\n" + base) if policy_prompt else base
 
