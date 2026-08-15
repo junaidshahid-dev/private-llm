@@ -98,12 +98,18 @@ def parse_proposals(text: str) -> list[dict]:
     return out
 
 
-def plan(question, generate, config=None, policy_prompt="") -> dict:
-    """Model analyses and proposes. NOTHING is executed here."""
+def reasoning_system(config=None, policy_prompt="") -> str:
+    """The full analysis-mode system prompt: behaviour + tool surface + environment. Shared by the
+    single-pass plan() and the multi-round session so both drive the model the same way."""
     base = REASONING_SYSTEM + "\n\nAVAILABLE TOOLS (propose only these, by exact name):\n" \
         + _available_tools_text() + _environment_text(config)
-    system = (policy_prompt + "\n\n" + base) if policy_prompt else base
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
+    return (policy_prompt + "\n\n" + base) if policy_prompt else base
+
+
+def plan(question, generate, config=None, policy_prompt="") -> dict:
+    """Model analyses and proposes. NOTHING is executed here."""
+    messages = [{"role": "system", "content": reasoning_system(config, policy_prompt)},
+                {"role": "user", "content": question}]
     analysis = (generate(messages) or "").strip()
     return {"analysis": analysis, "proposals": parse_proposals(analysis), "executed": False}
 

@@ -34,14 +34,25 @@ from mcp_layer import permissions as perm
 from verification.verify import verify
 
 
+import json                                                           # noqa: E402
+
+MAX_ROUNDS = 4              # cap the propose->run->observe->propose loop so it cannot spin forever
+RESULT_CHARS = 1500        # trim each tool result fed back into the conversation
+
+
 def run_session(question, generate, approver, *, config=None, policy_prompt="",
-                executor=None, interpret_fn=None, verify_fn=None) -> dict:
-    """Run one plan -> approve -> execute -> interpret -> verify loop.
+                executor=None, verify_fn=None, max_rounds=MAX_ROUNDS) -> dict:
+    """Run the MULTI-ROUND loop: plan -> (approve -> execute)* -> observe -> ... -> verify.
 
     generate(messages) -> str : the model (Moonlight on GPU; scripted in tests).
-    approver(proposal) -> bool: the HUMAN gate. Required — no default, so a session cannot run
-                                without an explicit decision path. Called once per proposal.
-    Returns a full session record (nothing hidden), including the verification verdict.
+    approver(proposal) -> bool: the HUMAN gate, called once PER PROPOSAL EVERY ROUND. Required — no
+                                default, so a session cannot run without a human decision path.
+
+    Each round the model proposes tools over the running conversation; only approved ones execute;
+    their real results are fed back so the model can CORRECT itself (a bad path, a missing step) and
+    continue. The loop ends when the model stops proposing (final answer), the operator approves
+    nothing, or max_rounds is hit. The record is backward-compatible with the single-pass version
+    (flattened proposals/decisions/results) and adds a per-round trace.
     """
     if approver is None:
         raise ValueError("run_session requires an approver (the operator's decision). Refusing to "
@@ -49,67 +60,101 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
     if config is None:
         config = perm.load_config()
     execute = executor or controller.execute_proposal
-    interpret = interpret_fn or controller.interpret
     verify_call = verify_fn or verify
 
-    # 1. PLAN — model reasons and proposes. Nothing executes here.
-    plan = controller.plan(question, generate, config, policy_prompt)
-    record = {"question": question, "analysis": plan["analysis"], "proposals": plan["proposals"],
-              "decisions": [], "results": [], "interpretation": None, "verification": None,
-              "executed_tools": []}
+    messages = [{"role": "system", "content": controller.reasoning_system(config, policy_prompt)},
+                {"role": "user", "content": question}]
+    record = {"question": question, "analysis": "", "rounds": [], "proposals": [], "decisions": [],
+              "results": [], "interpretation": None, "verification": None, "executed_tools": []}
 
-    # 2+3. APPROVE — surface each proposal to the human; execute ONLY the approved ones.
-    for proposal in plan["proposals"]:
-        approved = approver(proposal) is True          # must be an explicit True from the human
-        decision = {"tool": proposal.get("tool"), "arguments": proposal.get("arguments", {}),
-                    "why": proposal.get("why", ""), "kind": proposal.get("kind", "standard"),
-                    "approved": approved}
-        if not approved:
-            decision["result"] = {"ok": False, "error": "declined by operator — not executed"}
+    final_text, hit_cap = "", False
+    for rnd in range(1, max_rounds + 1):
+        text = (generate(messages) or "").strip()
+        final_text = text
+        if rnd == 1:
+            record["analysis"] = text            # the first turn is the plan, for render/back-compat
+        proposals = controller.parse_proposals(text)
+        rrec = {"round": rnd, "text": text, "decisions": []}
+        record["rounds"].append(rrec)
+        record["proposals"].extend(proposals)
+        if not proposals:
+            break                                # model gave a final answer -> done
+
+        messages.append({"role": "assistant", "content": text})
+        executed_blocks, any_executed = [], False
+        for proposal in proposals:
+            approved = approver(proposal) is True          # explicit human True, never model text
+            decision = {"tool": proposal.get("tool"), "arguments": proposal.get("arguments", {}),
+                        "why": proposal.get("why", ""), "kind": proposal.get("kind", "standard"),
+                        "approved": approved}
+            if not approved:
+                decision["result"] = {"ok": False, "error": "declined by operator — not executed"}
+            else:
+                # operator_ack is the HUMAN decision, never anything derived from model output.
+                result = execute(proposal, config, operator_ack=approved)
+                decision["result"] = result
+                record["results"].append({"tool": proposal.get("tool"), "result": result})
+                executed_blocks.append((proposal.get("tool"), result))
+                if result.get("ok"):
+                    record["executed_tools"].append(proposal.get("tool"))
+                any_executed = True
+            rrec["decisions"].append(decision)
             record["decisions"].append(decision)
-            continue
-        # 4. EXECUTE — operator_ack is the HUMAN decision, never anything from model output.
-        result = execute(proposal, config, operator_ack=approved)
-        decision["result"] = result
-        record["decisions"].append(decision)
-        record["results"].append({"tool": proposal.get("tool"), "result": result})
-        if result.get("ok"):
-            record["executed_tools"].append(proposal.get("tool"))
 
-    # 5. INTERPRET (only if something actually ran) — model reasons over REAL results.
-    final_text = plan["analysis"]
-    if record["results"]:
-        final_text = interpret(question, record["results"], generate, policy_prompt)
+        if not any_executed:
+            break                                # operator denied everything -> stop, don't spin
+        if rnd == max_rounds:
+            hit_cap = True
+            break
+        blocks = "\n\n".join(f"[{i + 1}] {t} -> {json.dumps(r)[:RESULT_CHARS]}"
+                             for i, (t, r) in enumerate(executed_blocks))
+        messages.append({"role": "user", "content":
+                         f"The operator ran your approved tool(s) and these are the REAL results:\n"
+                         f"{blocks}\n\nUse them. If a call errored, correct it and propose again. "
+                         "When you have enough to answer, give your final answer as plain text; "
+                         "otherwise propose the next tool."})
+
+    # If we stopped while the model was still proposing (hit the round cap), ask for a final answer.
+    if hit_cap:
+        messages.append({"role": "user", "content":
+                         "Round limit reached. Give your best final answer now using what the "
+                         "tools returned; do not propose more tools."})
+        final_text = (generate(messages) or "").strip()
+        record["rounds"].append({"round": max_rounds + 1, "text": final_text, "decisions": [],
+                                 "forced_final": True})
+
+    record["final"] = final_text
+    if record["results"]:                        # a final answer produced after real tool results
         record["interpretation"] = final_text
 
-    # 6. VERIFY — classify the final answer. tools_ran is passed so that, when a tool really ran,
-    #    an "I scanned ..." statement is truthful and NOT flagged as a phantom action; when nothing
-    #    ran, the same claim IS flagged. Non-destructive: verify never edits final_text.
+    # VERIFY the final answer. tools_ran scopes the phantom-action check: after a real run, "I read
+    # the file ..." is truthful; with nothing run, the same claim is flagged. Non-destructive.
     report = verify_call(final_text, hits=None, tools_ran=record["executed_tools"] or None)
     record["verification"] = {"verdict": report.verdict,
                               "findings": [str(f) for f in report.findings],
                               "next": report._NEXT[report.verdict]}
-    record["final"] = final_text
     return record
 
 
 def render_session(record: dict) -> str:
-    """Human-facing transcript of the loop — what was proposed, approved, run, and the verdict."""
-    L = [f"Q: {record['question']}", "", "PLAN (model reasoning; nothing executed):",
-         record["analysis"].strip() or "(empty)"]
-    if record["proposals"]:
-        L.append("\nPROPOSED TOOLS (inert until you approve):")
-        for d in record["decisions"]:
+    """Human-facing transcript of the multi-round loop — each round's reasoning, the proposals and
+    the operator's decision, the real results, and the final verdict."""
+    L = [f"Q: {record['question']}"]
+    rounds = record.get("rounds") or []
+    for rr in rounds:
+        forced = rr.get("forced_final")
+        L.append(f"\n--- {'FINAL' if forced else 'ROUND ' + str(rr['round'])} "
+                 "(model reasoning; nothing runs until you approve) ---")
+        L.append(rr["text"].strip() or "(empty)")
+        for d in rr.get("decisions", []):
             mark = "APPROVED" if d["approved"] else "DECLINED"
             ok = d.get("result", {}).get("ok")
             tail = "" if not d["approved"] else f"  -> {'ok' if ok else 'error'}"
             L.append(f"  [{mark}] {d['tool']}({d['arguments']})  {d['why']}{tail}")
-    else:
+    if not any(rr.get("decisions") for rr in rounds):
         L.append("\n(no tools proposed — pure reasoning answer)")
-    if record["interpretation"]:
-        L.append("\nINTERPRETATION (model over REAL results):")
-        L.append(record["interpretation"].strip())
     v = record["verification"]
+    L.append(f"\nFINAL ANSWER:\n{(record.get('final') or '').strip()}")
     L.append(f"\nVerification: {v['verdict']}")
     for f in v["findings"]:
         L.append(f"  - {f}")

@@ -122,6 +122,62 @@ def main() -> int:
           and any("phantom" in f for f in rec["verification"]["findings"]),
           rec["verification"]["verdict"])
 
+    # ---- G. multi-round: the model corrects itself over turns -----------------
+    print("\nG. multi-round loop — self-correction, chaining, and the round cap")
+
+    # G1. a bad path errors, the model sees it and RETRIES with a good path, then answers
+    def path_executor():
+        seen = []
+
+        def ex(proposal, config, operator_ack=False):
+            p = proposal.get("arguments", {}).get("path", "")
+            seen.append(p)
+            if p.startswith("/path/to"):
+                return {"ok": False, "error": "path outside the allowed roots"}
+            return {"ok": True, "tool": proposal.get("tool"),
+                    "result": {"content": "revision: 4e735b07"}}
+        return ex, seen
+
+    ex, seen = path_executor()
+    rec = run_session(
+        "read the lock file and tell me the revision",
+        scripted('{"tool":"fs_read","arguments":{"path":"/path/to/MODEL_SPEC.lock.json"}}',
+                 '{"tool":"fs_read","arguments":{"path":"MODEL_SPEC.lock.json"}}',
+                 "The pinned revision is 4e735b07."),
+        approver=lambda p: True, executor=ex)
+    check("retried after the error (bad path, then good path)",
+          seen == ["/path/to/MODEL_SPEC.lock.json", "MODEL_SPEC.lock.json"], str(seen))
+    check("only the successful call counts as executed", rec["executed_tools"] == ["fs_read"])
+    check("final answer uses the corrected result", "4e735b07" in rec["final"])
+    check("multi-round trace recorded", len(rec["rounds"]) == 3)
+
+    # G2. a model that never stops proposing hits the round cap and is forced to answer
+    def propose_then_answer(n):
+        c = {"i": 0}
+
+        def g(_m):
+            c["i"] += 1
+            return FS_PROPOSAL if c["i"] <= n else "Done — final answer with what I have."
+        return g
+
+    ex, calls = recording_executor()
+    rec = run_session("keep going", propose_then_answer(2), approver=lambda p: True,
+                      executor=ex, max_rounds=2)
+    check("stops at the round cap (does not spin)", len(calls) == 2, f"{len(calls)} executions")
+    check("forced final answer produced", rec["rounds"][-1].get("forced_final") is True)
+    check("final answer present after cap", "final answer" in rec["final"].lower())
+
+    # G3. chains two different tools across rounds
+    ex, calls = recording_executor()
+    rec = run_session(
+        "list the dir then read the file",
+        scripted('{"tool":"fs_list","arguments":{"path":"."}}',
+                 '{"tool":"fs_read","arguments":{"path":"README.md"}}',
+                 "Here is the summary."),
+        approver=lambda p: True, executor=ex)
+    check("chains fs_list then fs_read in order", rec["executed_tools"] == ["fs_list", "fs_read"],
+          str(rec["executed_tools"]))
+
     print("\n" + "=" * 74)
     if fails:
         print(f"FAILED {len(fails)}: {', '.join(fails)}")
