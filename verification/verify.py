@@ -307,6 +307,43 @@ def check_tool_grounding(answer: str, tool_results: list[dict] | None) -> list[F
                    (answer or "").strip()[:120])]
 
 
+# ---- 6. security specifics: CVE ids and hashes ------------------------------
+# Deterministic, security-relevant, low false-positive.
+#  * A CVE-shaped token that is not a WELL-FORMED id (CVE-YYYY-NNNN, year >= 1999, >= 4-digit
+#    sequence) is a typo or a fabrication -> WARN.
+#  * A file HASH is not knowable without computing it, so a 32/40/64-hex hash asserted in the answer
+#    that appears in NO successful tool result is very likely invented -> WARN, verify it.
+_CVE_LOOSE = re.compile(r"\bCVE-\d{1,4}-\d{1,9}\b", re.I)
+_CVE_STRICT = re.compile(r"CVE-(?:1999|20\d{2})-\d{4,7}")
+_HASH = re.compile(r"\b(?:[a-fA-F0-9]{64}|[a-fA-F0-9]{40}|[a-fA-F0-9]{32})\b")
+
+
+def check_cve_format(answer: str) -> list[Finding]:
+    out = []
+    for m in _CVE_LOOSE.finditer(answer or ""):
+        tok = m.group(0)
+        if not _CVE_STRICT.fullmatch(tok.upper()):
+            out.append(Finding("warn", "cve_format",
+                               f"'{tok}' is not a well-formed CVE id (expected CVE-YYYY-NNNN, year "
+                               ">= 1999, 4+ digit sequence) - typo or fabrication", tok))
+    return out
+
+
+def check_claim_grounding(answer: str, tool_results: list[dict] | None) -> list[Finding]:
+    oks = [r for r in (tool_results or []) if (r.get("result") or {}).get("ok")]
+    if not oks:
+        return []                       # no successful output to check against
+    import json as _json
+    corpus = " ".join(_json.dumps(r.get("result")) for r in oks).lower()
+    out = []
+    for tok in sorted({h for h in _HASH.findall(answer or "")}):
+        if tok.lower() not in corpus:
+            out.append(Finding("warn", "claim_grounding",
+                               f"the answer states a hash '{tok[:12]}...' that is in NO tool "
+                               "result - a hash cannot be known without computing it; verify", tok))
+    return out
+
+
 # ---- orchestrator -----------------------------------------------------------
 def verify(answer: str, hits: list[dict] | None = None,
            tools_ran: list[str] | None = None,
@@ -319,6 +356,8 @@ def verify(answer: str, hits: list[dict] | None = None,
     r.add(*check_grounding(answer, hits))
     r.add(*check_phantom_actions(answer, tools_ran))
     r.add(*check_tool_grounding(answer, tool_results))
+    r.add(*check_cve_format(answer))
+    r.add(*check_claim_grounding(answer, tool_results))
     return r
 
 

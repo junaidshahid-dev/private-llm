@@ -111,6 +111,22 @@ def main() -> int:
     check("no tool_results => check is inert",
           not has(verify("The revision is 4e735b07."), "tool_grounding"))
 
+    # ---- 5c. security specifics: CVE format + hash grounding ----------------
+    print("\n5c. security specifics — malformed CVE ids and fabricated hashes")
+    check("valid CVE is not flagged",
+          not has(verify("This is Log4Shell, CVE-2021-44228."), "cve_format"))
+    check("malformed CVE year flagged", has(verify("see CVE-99-1"), "cve_format", "warn"))
+    check("too-short CVE sequence flagged", has(verify("CVE-2021-4 maybe"), "cve_format", "warn"))
+    sha = "a" * 64
+    other = "b" * 64
+    ran_ok = [{"tool": "sha256", "result": {"ok": True, "result": {"digest": sha}}}]
+    check("a hash matching tool output is fine",
+          not has(verify(f"The file's SHA-256 is {sha}.", tool_results=ran_ok), "claim_grounding"))
+    check("a hash NOT in any tool result is flagged (cannot know a hash without computing it)",
+          has(verify(f"The SHA-256 is {other}.", tool_results=ran_ok), "claim_grounding", "warn"))
+    check("hash check inert without tool results",
+          not has(verify(f"The SHA-256 is {other}."), "claim_grounding"))
+
     # ---- 6. report semantics: the PASS / WARNING / BLOCK verdict -------------
     print("\n6. verdict — three non-destructive tiers")
     check("clean answer => PASS", verify("Least privilege limits blast radius.").verdict == "PASS")
