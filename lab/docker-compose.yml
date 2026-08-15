@@ -25,6 +25,9 @@ services:
     container_name: lab-operator
     depends_on: [web-target]
     command: ["sleep", "infinity"]        # stays up; exec tools into it for the isolated variant
+    cap_add:                              # nmap's raw-socket scans need these; without NET_ADMIN
+      - NET_RAW                           # Kali's cap-tagged nmap binary fails to even exec
+      - NET_ADMIN
     networks:
       labnet:
         ipv4_address: 172.28.0.5
