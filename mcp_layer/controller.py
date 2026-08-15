@@ -57,6 +57,24 @@ def _available_tools_text() -> str:
     return json.dumps(toolmod.schema() + secmod.schema(), indent=2)
 
 
+def _environment_text(config) -> str:
+    """Tell the model the concrete paths it may use, so it proposes a REAL path — not the
+    placeholder '/path/to/...' the model invents when it doesn't know the working directory."""
+    if not config:
+        return ""
+    fs = (config.get("filesystem_read") or {}).get("allowed_paths", [])
+    git = (config.get("git_inspect") or {}).get("allowed_repos", [])
+    lines = []
+    if fs:
+        lines.append(f"Readable roots (fs_read/fs_list paths must be inside one of these): {fs}. "
+                     "Use a real path relative to a root or an absolute path inside one — for "
+                     "example the file 'MODEL_SPEC.lock.json' at the project root, not a made-up "
+                     "'/path/to/...' placeholder.")
+    if git:
+        lines.append(f"Git repos you may inspect: {git}.")
+    return ("\n\nENVIRONMENT:\n" + "\n".join(lines)) if lines else ""
+
+
 def _all_tool_names() -> set:
     return set(toolmod.DISPATCH) | set(secmod.DISPATCH)
 
@@ -83,7 +101,7 @@ def parse_proposals(text: str) -> list[dict]:
 def plan(question, generate, config=None, policy_prompt="") -> dict:
     """Model analyses and proposes. NOTHING is executed here."""
     base = REASONING_SYSTEM + "\n\nAVAILABLE TOOLS (propose only these, by exact name):\n" \
-        + _available_tools_text()
+        + _available_tools_text() + _environment_text(config)
     system = (policy_prompt + "\n\n" + base) if policy_prompt else base
     messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
     analysis = (generate(messages) or "").strip()
