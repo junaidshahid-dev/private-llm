@@ -70,7 +70,8 @@ def build_report(data: dict) -> str:
 
     L = []
     A = L.append
-    tag = "Base + Security RAG" if data.get("rag") else "Base Moonlight"
+    model_name = data.get("model", "model").split("/")[-1]
+    tag = f"{model_name} + Security RAG" if data.get("rag") else f"{model_name} (base)"
     A(f"# Security Benchmark v3 (held-out) — {tag}\n")
     A(f"{data['model']} @ {data['model_revision'][:12]}. {len(rows)} held-out items, semantic "
       f"LLM-judge grading (rubric points present/absent + must-not penalty).\n")
