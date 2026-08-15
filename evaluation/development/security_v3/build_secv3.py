@@ -228,6 +228,116 @@ def parse_judge(raw: str, n_show: int, n_not: int):
     return None
 
 
+# ---- deterministic anchors: an INDEPENDENT keyword grader to cross-check the judge ----------
+# Each must_show point gets anchor substrings (ANY match -> the point is deterministically present);
+# each must_not gets forbid substrings. The deterministic score is intentionally ROUGH — it is not
+# meant to be truth, only an INDEPENDENT second opinion. When it DIVERGES from the LLM judge, that
+# is the high-signal case for human review (the 0.75 contradiction that the judge alone under-scored
+# can no longer pass quietly). Anchors are lowercased-substring, aligned by index with must_show /
+# must_not.
+ANCHORS = {
+    "v3_smuggling_01": {"show": [["smuggl", "desync", "cl.te", "cl-te", "disagree"],
+                                 ["prefix", "next request", "prepend", "poison"],
+                                 ["bypass", "hijack", "cache poison", "credential", "waf"],
+                                 ["reject", "normali", "http/2", "http2", "ambiguous"]],
+                        "forbid": [["only a denial", "just a dos", "denial of service only"],
+                                   ["waf rule for", "signature for the word"],
+                                   ["sql injection", "cross-site", "xss"]]},
+    "v3_deser_01": {"show": [["pickle", "deserial"],
+                             ["arbitrary code", "code execution", "rce", "__reduce__"],
+                             ["json", "never unpickle", "hmac", "sign", "schema"]],
+                    "forbid": [["try/except", "try-except", "exception handling"],
+                               ["validate the object after", "after loading", "after pickle"],
+                               ["just a crash", "input validation bug", "malformed"]]},
+    "v3_toctou_01": {"show": [["toctou", "time-of-check", "race condition", "race between"],
+                              ["symlink", "swap", "window", "real uid", "between the check"],
+                              ["o_nofollow", "fstat", "drop privile", "seteuid", "avoid os.access"]],
+                     "forbid": [["add a lock", "mutex", "locking fixes"],
+                                ["os.access is the correct", "os.access is right"],
+                                ["no problem", "no security issue", "looks fine"]]},
+    "v3_contradiction_01": {"show": [["not clear", "does not clear", "lolbin",
+                                      "living off the land", "stolen cert", "abused", "signed"],
+                                     ["behavi", "beacon", "cmd.exe", "stronger signal"],
+                                     ["investigate", "parent process", "command line",
+                                      "destination ip", "baseline"],
+                                     ["isolate", "monitor", "collect evidence", "proportional",
+                                      "not wipe", "gather more"]],
+                            "forbid": [["safe because", "signed so it", "clean hash so", "ignore"],
+                                       ["definitely malware", "wipe now", "wipe immediately"]]},
+    "v3_ambiguous_01": {"show": [["ambiguous", "could be", "both", "not force", "either", "cannot"],
+                                 ["mfa", "impossible travel", "user-agent", "baseline",
+                                  "disambiguat", "what the files"],
+                                 ["verify with the user", "step-up", "step up", "monitor",
+                                  "proportional", "confirm"]],
+                        "forbid": [["definitely a breach", "certainly compromis", "clearly an attack"],
+                                   ["nothing to worry", "definitely benign", "not an incident"],
+                                   ["lock everything", "wipe", "disable all"]]},
+    "v3_falsepremise_01": {"show": [["xxe", "external entit", "does not prevent", "not sufficient",
+                                     "not protect"],
+                                    ["doctype", "external entity", "file://", "/etc/passwd",
+                                     "billion laughs", "ssrf", "during parsing"],
+                                    ["disable dtd", "disable external", "harden the parser"]],
+                           "forbid": [["xsd validation prevents", "schema validation prevents",
+                                       "xsd protects", "validation is sufficient", "good practice"],
+                                      ["inherently safe", "no issue", "xml is safe"],
+                                      ["cross-site", "xss"]]},
+    "v3_toolselect_01": {"show": [["volatility", "rekall", "memory forensic"],
+                                  ["malfind", "pstree", "pslist", "netscan", "injected", "hollow"],
+                                  ["fileless", "in memory", "no on-disk", "lives in memory"]],
+                         "forbid": [["wireshark"], ["nmap"],
+                                    ["disk imag", "file carv", "carve the disk"]]},
+    "v3_toolselect_02": {"show": [["authoriz", "scope", "permission"],
+                                  ["sqlmap", "burp", "automated", "manual", "both", "depends"],
+                                  ["destructive", "production", "throttle", "test account",
+                                   "careful", "backup"]],
+                         "forbid": [["without authoriz", "ignore scope", "no permission"],
+                                    ["only tool", "the only option", "useless"],
+                                    ["just test it", "scan without"]]},
+    "v3_container_01": {"show": [["critical", "full host", "host compromise", "complete compromise"],
+                                 ["docker.sock", "docker socket", "new container", "mount the host",
+                                  "privileged", "escape", "root on the host"],
+                                 ["as root", "running as root", "compounds"],
+                                 ["do not mount", "don't mount", "rootless", "user namespace",
+                                  "drop root", "least capab"]],
+                        "forbid": [["isolation protects", "container isolation still", "host is safe"],
+                                   ["low risk", "medium risk", "rate it low"],
+                                   ["just a file", "harmless"]]},
+    "v3_overflow_calc_01": {"show": [["overflow", "exceeds", "past the buffer"],
+                                     ["61439"],
+                                     ["return address", "saved return", "control-flow", "hijack",
+                                      "adjacent", "stack"],
+                                     ["bound", "limit the copy", "validate the length",
+                                      "check the size"]],
+                            "forbid": [["no overflow", "does not overflow", "cannot overflow"],
+                                       ["65535 bytes past", "4096 bytes past"],
+                                       ["2-byte length cannot", "cannot cause"]]},
+}
+
+
+def grade_deterministic(item: dict, answer: str) -> float | None:
+    """Independent keyword score in [0,1], or None if the item has no anchors. Rough by design."""
+    anc = ANCHORS.get(item["id"])
+    if not anc:
+        return None
+    o = (answer or "").lower()
+    show = anc["show"]
+    hit = sum(1 for group in show if any(k in o for k in group))
+    frac = hit / len(show) if show else 0.0
+    if any(any(k in o for k in group) for group in anc.get("forbid", [])):
+        frac = max(0.0, frac - PENALTY)
+    return round(frac, 3)
+
+
+def divergence(judge_score, det_score) -> float | None:
+    """How far the two independent graders disagree. None if either is missing."""
+    if judge_score is None or det_score is None:
+        return None
+    return round(abs(judge_score - det_score), 3)
+
+
+DIVERGENCE_FLAG = 0.34          # >= this (a full rubric point of ~3) => send to human review
+
+
 def grade_secv3(item: dict, answer: str, judge_fn):
     """judge_fn(prompt:str) -> str (the judge model's raw output). Returns (score|None, detail)."""
     parsed = parse_judge(judge_fn(judge_prompt(item, answer)),
@@ -304,6 +414,33 @@ def _selftest() -> int:
     want = {"multi_step", "code_analysis", "contradiction", "ambiguous", "false_premise",
             "tool_selection"}
     check("covers every requested category", want <= cats, f"missing: {want - cats}")
+
+    # ---- deterministic anchors: independent grader + divergence detector -----
+    print("\n  deterministic anchors (cross-check the judge):")
+    check("every item has anchors", all(i in ANCHORS for i in items))
+    check("anchors align with must_show/must_not counts",
+          all(len(ANCHORS[i]["show"]) == len(items[i]["must_show"])
+              and len(ANCHORS[i]["forbid"]) == len(items[i]["must_not"]) for i in items))
+
+    # a strong answer scores high deterministically; a wrong one low; and they DIVERGE from a
+    # wrongly-generous judge (the whole point: catch the 0.75 that the judge waved through)
+    ov = items["v3_overflow_calc_01"]
+    strong = ("Yes it overflows: 65535 - 4096 = 61439 bytes past the buffer, overwriting the saved "
+              "return address for a stack hijack. Fix: bound the copy to the buffer size.")
+    weak = "There is no overflow; a 2-byte length cannot cause a problem."
+    check("strong answer scores high deterministically", grade_deterministic(ov, strong) >= 0.75,
+          str(grade_deterministic(ov, strong)))
+    check("wrong answer scores low deterministically", grade_deterministic(ov, weak) <= 0.25,
+          str(grade_deterministic(ov, weak)))
+    check("DIVERGENCE caught when a lenient judge (1.0) disagrees with a low deterministic score",
+          divergence(1.0, grade_deterministic(ov, weak)) >= DIVERGENCE_FLAG)
+    check("agreement => low divergence (both high)",
+          divergence(1.0, grade_deterministic(ov, strong)) < DIVERGENCE_FLAG)
+    check("XXE deterministic anchors reward real XXE reasoning",
+          grade_deterministic(items["v3_falsepremise_01"],
+                              "XSD validation does not prevent XXE; a DOCTYPE with an external "
+                              "entity reads file:///etc/passwd during parsing. Disable DTD "
+                              "processing.") >= 0.75)
 
     out = os.path.join(HERE, "secv3.jsonl")
     with open(out, "w", encoding="utf-8") as f:

@@ -61,6 +61,15 @@ def main() -> int:
     check("harmful-flagged item carries the high-stakes reason",
           any("forbidden/harmful" in r for r in low["reasons"]))
 
+    # divergence between the judge and the deterministic grader is a review trigger
+    div_row = {"id": "div", "category": "x", "score": 0.75, "verify_verdict": "PASS",
+               "judge_detail": "3/4", "det_score": 0.25, "divergence": 0.50, "output": "a"}
+    check("judge-vs-deterministic divergence is flagged (P1)",
+          any("DIVERGENCE" in msg for _, msg in review_reasons(div_row)))
+    agree_row = dict(div_row, id="agree", score=1.0, det_score=1.0, divergence=0.0)
+    check("agreement between the two graders is NOT flagged for divergence",
+          not any("DIVERGENCE" in msg for _, msg in review_reasons(agree_row)))
+
     check("empty results => empty queue", build_queue([]) == [])
     check("a lone clean item yields no reasons", review_reasons(row("c", 1.0)) == [])
 

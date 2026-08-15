@@ -134,7 +134,7 @@ def main() -> int:
     from verification.verify import verify
     from rag.relevance import gate_relevance
     sys.path.insert(0, SECV3_DIR)
-    from build_secv3 import grade_secv3
+    from build_secv3 import grade_secv3, grade_deterministic, divergence
 
     if int(transformers.__version__.split(".")[0]) >= 5:
         sys.exit("transformers 5.x cannot quantise this model; install 4.57.6.")
@@ -209,13 +209,15 @@ def main() -> int:
             return txt
 
         score, detail = grade_secv3(item, answer, judge_fn)
+        det = grade_deterministic(item, answer)          # independent keyword cross-check
+        div = divergence(score, det)
         report = verify(answer, hits=hits, tools_ran=None)
 
         kept_n = len(hits) if hits else 0
         grounding = (f"{kept_n}/{retrieved_n} kept" if retriever else "no-rag")
         results.append({
             "id": item["id"], "domain": item["domain"], "category": item["category"],
-            "score": score, "judge_detail": detail,
+            "score": score, "det_score": det, "divergence": div, "judge_detail": detail,
             "verify_verdict": report.verdict,
             "verify_findings": [str(f) for f in report.findings],
             "retrieved": retrieved_n, "kept_after_gate": kept_n,
@@ -223,8 +225,10 @@ def main() -> int:
             "output": answer, "answer_tokens": a_tok,
             "latency_s": round(a_lat + j_stat["lat"], 2)})
         sc = "  —" if score is None else f"{score:.2f}"
-        print(f"  [{n}/{len(items)}] {item['category']:14} {sc}  {report.verdict:7}  "
-              f"[{grounding}]  {detail}")
+        dsc = "  —" if det is None else f"{det:.2f}"
+        flag = " ⚠DIVERGE" if (div is not None and div >= 0.34) else ""
+        print(f"  [{n}/{len(items)}] {item['category']:14} judge={sc} det={dsc}{flag}  "
+              f"{report.verdict:7}  [{grounding}]  {detail}")
 
     peak = torch.cuda.max_memory_allocated() / 1e9
     data = {"name": "secv3_" + ("rag" if args.rag else "base"), "model": lock["model"],

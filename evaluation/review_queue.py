@@ -42,6 +42,10 @@ def review_reasons(r: dict) -> list[tuple[int, str]]:
         out.append((1, "judge flagged a forbidden/harmful claim — confirm it is real, high stakes"))
     if verdict in ("WARNING", "BLOCK") and score is not None and score >= 0.8:
         out.append((1, f"DISAGREEMENT: verification={verdict} but judge={score:.2f} — one is wrong"))
+    det, div = r.get("det_score"), r.get("divergence")
+    if div is not None and div >= 0.34:
+        out.append((1, f"DIVERGENCE: judge={score:.2f} vs deterministic={det:.2f} — the two "
+                    "independent graders disagree; the judge may be wrong"))
     if score is not None and score < 0.5:
         out.append((2, f"LOW judge score {score:.2f} — real failure or a judge miss? confirm"))
     elif score is not None and 0.5 <= score < 1.0:
