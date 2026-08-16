@@ -43,6 +43,20 @@ terminal:
 python_exec:
   enabled: false
 
+# Web tools for RESEARCH (arbitrary public URLs) — a different trust model from security_tools:
+# no allowlist, but default-DENY of non-public addresses (SSRF). private_networks stays false so a
+# fetch cannot reach your LAN / localhost / cloud metadata (169.254.169.254); flip it only if you
+# deliberately want to fetch inside your own network. Fetched pages are UNTRUSTED data, never
+# instructions. Off by default.
+web:
+  enabled: false
+  fetch: true             # web_fetch: read-only GET of a public URL
+  search: false           # web_search (not built yet)
+  downloads: false        # never save files from the web by default
+  authenticated_sites: false
+  private_networks: false # SSRF default-deny; true only to allow LAN/localhost fetches on purpose
+  require_confirmation: true
+
 # Security / penetration-testing tools. Authorization is OPERATOR-CONTROLLED and explicit —
 # target class (public / private / remote / URL / device) does NOT imply authorization. Only the
 # authorized_targets list below does. A public IP you own is authorized by listing it; a private

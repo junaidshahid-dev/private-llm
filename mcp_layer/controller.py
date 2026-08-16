@@ -31,6 +31,7 @@ from mcp_layer import tools as toolmod
 from mcp_layer import security as secmod
 from mcp_layer import permissions as perm
 from mcp_layer.agent import _balanced_objects
+from web import tools as webmod
 
 REASONING_SYSTEM = (
     "You assist an operator who executes actions on your behalf. You HAVE indirect access to their "
@@ -78,7 +79,7 @@ SECURITY_METHODOLOGY = (
 
 def _available_tools_text() -> str:
     """The real tool surface, so the model proposes listed tools instead of inventing one."""
-    return json.dumps(toolmod.schema() + secmod.schema(), indent=2)
+    return json.dumps(toolmod.schema() + secmod.schema() + webmod.schema(), indent=2)
 
 
 def _environment_text(config) -> str:
@@ -100,7 +101,7 @@ def _environment_text(config) -> str:
 
 
 def _all_tool_names() -> set:
-    return set(toolmod.DISPATCH) | set(secmod.DISPATCH)
+    return set(toolmod.DISPATCH) | set(secmod.DISPATCH) | set(webmod.DISPATCH)
 
 
 def parse_proposals(text: str) -> list[dict]:
@@ -116,9 +117,10 @@ def parse_proposals(text: str) -> list[dict]:
             key = json.dumps({"t": obj["tool"], "a": obj.get("arguments", {})}, sort_keys=True)
             if key not in seen:
                 seen.add(key)
+                kind = ("security" if obj["tool"] in secmod.DISPATCH else
+                        "web" if obj["tool"] in webmod.DISPATCH else "standard")
                 out.append({"tool": obj["tool"], "arguments": obj.get("arguments", {}) or {},
-                            "why": obj.get("why", ""), "kind":
-                            "security" if obj["tool"] in secmod.DISPATCH else "standard"})
+                            "why": obj.get("why", ""), "kind": kind})
     return out
 
 
@@ -150,6 +152,8 @@ def execute_proposal(proposal: dict, config=None, operator_ack: bool = False) ->
     if tool in secmod.DISPATCH:
         # reaching here IS the operator's explicit instruction, so confirm the security run
         return secmod.dispatch(proposal, config, confirmed=True)
+    if tool in webmod.DISPATCH:
+        return webmod.dispatch(proposal, config, confirmed=True)
     if tool in toolmod.DISPATCH:
         return toolmod.dispatch(proposal, config)
     return {"ok": False, "error": f"unknown tool {tool!r}"}
