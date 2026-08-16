@@ -65,16 +65,25 @@ def render(a, b) -> str:
     def row(label, x, y):
         L.append(f"{label:22}{_fmt(x):>26}{_fmt(y):>26}")
 
-    row("Overall", _mean([r["score"] for r in a["results"]]),
+    # TWO overalls: the LLM judge (home-field-biased when it grades its own family) and the
+    # INDEPENDENT deterministic anchors (same rubric for both models). When these disagree, trust
+    # the deterministic RANKING and a human spot-check — that is what the divergence flags are for.
+    row("Overall (judge)", _mean([r["score"] for r in a["results"]]),
         _mean([r["score"] for r in b["results"]]))
+    row("Overall (determ.)", _mean([r.get("det_score") for r in a["results"]]),
+        _mean([r.get("det_score") for r in b["results"]]))
     for cat in sorted(set(ca) | set(cb)):
         row(cat, ca.get(cat), cb.get(cat))
 
     # verification + cost (not [0,1] scores, shown raw)
     def blocks(d):
         return sum(1 for r in d["results"] if r.get("verify_verdict") in ("BLOCK", "WARNING"))
+    def diverged(d):     # items where judge and deterministic disagree by >= a full rubric point
+        return sum(1 for r in d["results"]
+                   if r.get("divergence") is not None and r["divergence"] >= 0.34)
     ac, bc = a.get("cost", {}), b.get("cost", {})
     L.append("-" * 78)
+    L.append(f"{'Judge≠determ. (⚠)':22}{diverged(a):>26}{diverged(b):>26}")
     L.append(f"{'Verify non-PASS':22}{blocks(a):>26}{blocks(b):>26}")
     L.append(f"{'Latency s/item':22}{str(ac.get('mean_latency_s','?')):>26}"
              f"{str(bc.get('mean_latency_s','?')):>26}")

@@ -237,8 +237,12 @@ def main() -> int:
     peak = torch.cuda.max_memory_allocated() / 1e9
     # tag results by MODEL so a swap does not clobber the baseline run (secv3_moonlight_base vs
     # secv3_qwen25-14b_base). Derived from the lock file name.
-    mtag = (os.path.basename(lock.get("_lock_path", "MODEL_SPEC.lock.json"))
-            .replace("MODEL_SPEC.", "").replace(".lock.json", "")) or "moonlight"
+    _ln = os.path.basename(lock.get("_lock_path", "MODEL_SPEC.lock.json"))
+    if _ln.endswith(".lock.json"):
+        _ln = _ln[:-len(".lock.json")]
+    if _ln.startswith("MODEL_SPEC"):
+        _ln = _ln[len("MODEL_SPEC"):]
+    mtag = _ln.lstrip(".") or "moonlight"          # MODEL_SPEC.lock.json -> "moonlight"
     data = {"name": f"secv3_{mtag}_" + ("rag" if args.rag else "base"), "model": lock["model"],
             "model_revision": lock["revision"], "rag": bool(args.rag), "items": len(items),
             "environment": {"transformers": transformers.__version__,
