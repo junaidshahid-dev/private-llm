@@ -17,8 +17,9 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKIP = (".venv", "site-packages", "__pycache__", "scratch", os.sep + "node_modules")
 
-# test modules (self-verifying, exit 0 on pass) — *_test.py plus the benchmark builder's self-test
-extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_secv3.py")]
+# test modules (self-verifying, exit 0 on pass) — *_test.py plus the benchmark builders' self-tests
+extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_secv3.py"),
+         os.path.join(HERE, "web", "benchmark.py")]
 
 
 def discover() -> list[str]:
