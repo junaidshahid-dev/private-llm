@@ -41,9 +41,10 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
 SECV3_DIR = os.path.join(HERE, "evaluation", "development", "security_v3")
 SECV3 = os.path.join(SECV3_DIR, "secv3.jsonl")
-CAVEAT = ("NOTE: judge = Moonlight grading itself (optimistic). This score is a LOWER BOUND on "
-          "rigour, not a verdict — a strong result warrants a human spot-check, not a claim of "
-          "proof.")
+CAVEAT = ("NOTE: judge = the SAME model grading its own answers (optimistic — a model rarely "
+          "catches the errors it would make; whichever --model runs is also the judge). This score "
+          "is a LOWER BOUND on rigour, not a verdict — a strong result warrants a human spot-check "
+          "or a cross-judge (judge_pass.py), not a claim of proof.")
 
 
 def load_items():
