@@ -65,3 +65,6 @@ rag/index/
 
 # security tool audit log is runtime data
 mcp_layer/security_audit.log
+
+# runtime memory data (local only, never committed)
+memory/store_data.json
