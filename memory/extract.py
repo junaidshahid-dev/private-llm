@@ -36,22 +36,60 @@ def extract_candidates(conversation: str, generate, max_candidates: int = 8) -> 
     return out[:max_candidates]
 
 
+_IMPORTANT = ("decided", "decision", "prefer", "always", "never", "must", "architecture", "chose",
+              "standard", "policy", "rule", "north star", "baseline", "uses", "directory", "goal")
+_TEMPORARY = ("today", "right now", "currently", "temporar", "might", "maybe", "for now", "later",
+              "tomorrow", "just now", "at the moment")
+
+
+def classify_importance(text: str) -> float:
+    """Heuristic importance in [0,1]: decisions/preferences/architecture score higher; temporary or
+    hedged statements score lower. Replaces the old fixed default."""
+    lo = (text or "").lower()
+    score = 0.5
+    if any(w in lo for w in _IMPORTANT):
+        score += 0.25
+    if any(w in lo for w in _TEMPORARY):
+        score -= 0.3
+    if len(text) < 20:
+        score -= 0.1
+    return round(max(0.0, min(1.0, score)), 2)
+
+
+def _terms(text: str) -> set:
+    return {t for t in re.findall(r"\w+", (text or "").lower()) if len(t) > 3}
+
+
 def _is_duplicate(text: str, store, project) -> bool:
-    terms = {t for t in re.findall(r"\w+", text.lower()) if len(t) > 3}
+    terms = _terms(text)
     if not terms:
         return False
+    return any(len(terms & set(re.findall(r"\w+", i["text"].lower()))) / len(terms) >= 0.8
+               for i in store._active(project or store.project))
+
+
+def detect_conflicts(text: str, store, project=None) -> list:
+    """Existing memories that likely CONTRADICT the candidate: same subject (strong term overlap)
+    but not a duplicate — e.g. 'base model is Moonlight' vs 'base model is Qwen'. These are surfaced
+    for the operator to resolve (supersede), never blindly stored alongside the old fact."""
+    terms = _terms(text)
+    if not terms:
+        return []
+    out = []
     for i in store._active(project or store.project):
-        existing = set(re.findall(r"\w+", i["text"].lower()))
-        if len(terms & existing) / len(terms) >= 0.8:
-            return True
-    return False
+        overlap = len(terms & _terms(i["text"])) / len(terms)
+        if 0.5 <= overlap < 0.8:
+            out.append(i)
+    return out
 
 
 def process_candidates(candidates, store, project=None, approver=None,
-                       importance=0.6, source="conversation") -> dict:
-    """Filter + store candidates. approver(text)->bool gates each one (operator approval). Returns a
-    full account of what happened to every candidate (nothing hidden)."""
-    added, dropped_secret, duplicate, declined = [], [], [], []
+                       importance=None, source="conversation") -> dict:
+    """Filter + store candidates. Pipeline: secret-drop -> duplicate-skip -> CONFLICT-flag ->
+    approval-gate -> store (importance CLASSIFIED unless given). approver(text)->bool is the operator
+    gate. Conflicts are surfaced (not blindly stored), so contradictions are resolved deliberately.
+    Returns a full account of every candidate (nothing hidden)."""
+    added, dropped_secret, duplicate, declined, conflicts = [], [], [], [], []
     for text in candidates:
         _clean, secrets = redact_secrets(text)
         if secrets:
@@ -60,13 +98,19 @@ def process_candidates(candidates, store, project=None, approver=None,
         if _is_duplicate(text, store, project):
             duplicate.append(text)
             continue
+        conf = detect_conflicts(text, store, project)
+        if conf:
+            conflicts.append({"candidate": text, "conflicts_with": [c["id"] for c in conf],
+                              "existing": [c["text"] for c in conf]})
+            continue                              # do NOT store both as current — surface it
         if approver is not None and approver(text) is not True:
             declined.append(text)
             continue
-        r = store.add(text, importance=importance, project=project, source=source)
+        imp = importance if importance is not None else classify_importance(text)
+        r = store.add(text, importance=imp, project=project, source=source)
         (added if r.get("ok") else dropped_secret).append(text)
     return {"added": added, "duplicate": duplicate, "dropped_secret": dropped_secret,
-            "declined": declined}
+            "declined": declined, "conflicts": conflicts}
 
 
 def remember_from_conversation(conversation, generate, store, project=None, approver=None) -> dict:

@@ -66,5 +66,6 @@ rag/index/
 # security tool audit log is runtime data
 mcp_layer/security_audit.log
 
-# runtime memory data (local only, never committed)
+# runtime memory data (local only, never committed) + the at-rest encryption key
 memory/store_data.json
+memory/.memory_key

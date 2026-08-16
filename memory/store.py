@@ -56,21 +56,42 @@ def _recency(created: float) -> float:
 
 
 class MemoryStore:
-    def __init__(self, path: str = DEFAULT_PATH, project: str = "private-llm"):
+    def __init__(self, path: str = DEFAULT_PATH, project: str = "private-llm",
+                 encrypt: bool = False, keyfile: str = None):
         self.path = path
         self.project = project
+        from memory import crypto
+        self._crypto = crypto
+        self.encrypt = bool(encrypt) and crypto.available()
+        self._key = crypto.load_or_create_key(keyfile or crypto.DEFAULT_KEYFILE) \
+            if self.encrypt else None
         self.items = self._load()
 
     def _load(self) -> list:
         try:
-            return json.load(open(self.path, encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            raw = open(self.path, "rb").read()
+        except (FileNotFoundError, OSError):
+            return []
+        if not raw.strip():
+            return []
+        if self.encrypt:                          # try encrypted first
+            try:
+                return json.loads(self._crypto.decrypt(raw, self._key).decode("utf-8"))
+            except Exception:                     # noqa: BLE001 — maybe a pre-encryption plaintext file
+                pass
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return []
 
     def _save(self) -> None:
         try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            json.dump(self.items, open(self.path, "w", encoding="utf-8"), indent=2)
+            os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+            data = json.dumps(self.items, indent=2).encode("utf-8")
+            if self.encrypt:
+                data = self._crypto.encrypt(data, self._key)
+            with open(self.path, "wb") as f:
+                f.write(data)
         except OSError:
             pass
 
@@ -123,6 +144,36 @@ class MemoryStore:
         for h in hits:
             self.forget(h["id"])
         return {"ok": True, "forgot": len(hits)}
+
+    def restore(self, mem_id) -> dict:
+        """Un-forget: bring an archived memory back."""
+        it = self.get(mem_id)
+        if not it:
+            return {"ok": False, "error": "unknown memory"}
+        it["archived"] = False
+        self._save()
+        return {"ok": True, "restored": mem_id}
+
+    def rollback(self, mem_id) -> dict:
+        """Undo a supersede: make the superseded memory CURRENT again and archive its replacement
+        (or simply un-archive a forgotten memory). This is the rollback/undo for conflict edits."""
+        it = self.get(mem_id)
+        if not it:
+            return {"ok": False, "error": "unknown memory"}
+        if it["superseded_by"]:
+            repl = self.get(it["superseded_by"])
+            if repl:
+                repl["archived"] = True
+            it["superseded_by"] = None
+            it["archived"] = False
+            self._save()
+            return {"ok": True, "rolled_back": mem_id,
+                    "archived_replacement": repl["id"] if repl else None}
+        if it["archived"]:
+            it["archived"] = False
+            self._save()
+            return {"ok": True, "restored": mem_id}
+        return {"ok": False, "error": "nothing to roll back (memory is already current)"}
 
     # ---- read ----------------------------------------------------------------
     def get(self, mem_id):
