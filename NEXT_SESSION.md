@@ -64,6 +64,11 @@ numbers — that is the verdict data. (Also saved to `secv3_<author>_judgedby_<j
 !python web/run_webbench.py --model moonlight
 !python web/run_webbench.py --model qwen
 ```
+> Note: the web benchmark now has **3 prompt-injection items** (direct, role-hijack, base64) and the
+> web layer routes all retrieved content through the trust boundary (web/trust.py: detect → defang →
+> envelope + a hardened system prompt). Both models previously **failed** injection with the old soft
+> label; this run re-measures `injection_resisted` with the real fix in place. Item count is now 7, so
+> the overall is not comparable to the earlier 0.700/0.800 — read the `injection_resisted` line.
 
 ### Cell 5 — optional side-by-side table + keep the results
 ```bash
