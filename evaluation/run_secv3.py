@@ -24,7 +24,6 @@ with the score, by design.
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import platform
@@ -32,8 +31,10 @@ import sys
 import time
 from collections import defaultdict
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
-                              line_buffering=True)
+try:                                   # utf-8 output without stacking a wrapper over a closed buffer
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+except (AttributeError, ValueError):
+    pass
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
