@@ -18,6 +18,9 @@ query = " ".join(sys.argv[1:]) or "nmap version detection"
 cfg = {"web": {"enabled": True, "search": True}}
 r = web_search(cfg, query)
 if not r.get("ok"):
+    if r.get("backend_blocked"):
+        print("web_search BACKEND BLOCKED (not a code bug):\n ", r.get("error"))
+        sys.exit(2)
     print("web_search FAILED:", r.get("error"))
     sys.exit(1)
 res = r["result"]

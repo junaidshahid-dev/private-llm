@@ -89,6 +89,14 @@ def main() -> int:
     check("a failing backend is a soft error, not a crash",
           not web_search(cfg, "q", _search=boom)["ok"])
 
+    from web.search import SearchBackendBlocked
+
+    def blocked(q):
+        raise SearchBackendBlocked("DDG returned HTTP 202 with an empty body — blocked.")
+    bout = web_search(cfg, "q", _search=blocked)
+    check("a BLOCKED backend is flagged, not reported as 0 results",
+          not bout["ok"] and bout.get("backend_blocked") is True)
+
     # wiring
     from mcp_layer import controller
     check("web_search in the tool surface", "web_search" in controller._all_tool_names())

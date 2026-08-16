@@ -21,6 +21,11 @@ import urllib.request
 from web.safety import TIMEOUT, UA
 
 DDG_HTML = "https://html.duckduckgo.com/html/"
+
+
+class SearchBackendBlocked(RuntimeError):
+    """The search backend answered, but refused to serve results (anti-bot / rate-limit). Distinct
+    from 'genuinely zero matches' — we must NOT report this as an empty result set."""
 _RESULT = re.compile(
     r'class="result__a"[^>]*href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>'
     r'(?:.*?class="result__snippet"[^>]*>(?P<snip>.*?)</a>)?', re.S)
@@ -86,7 +91,17 @@ def _default_search(query: str) -> str:
                                  headers={"User-Agent": UA, "Content-Type":
                                           "application/x-www-form-urlencoded"})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        return r.read(1_000_000).decode("utf-8", "replace")
+        status = getattr(r, "status", None) or r.getcode()
+        body = r.read(1_000_000).decode("utf-8", "replace")
+    # DuckDuckGo answers an automated client with HTTP 202 + an empty body instead of an error.
+    # Reporting that as "0 results" would be a silent lie, so surface it as a blocked backend.
+    if status == 202 or not body.strip():
+        raise SearchBackendBlocked(
+            f"DuckDuckGo returned HTTP {status} with an empty body — it is rate-limiting/blocking "
+            "automated requests from this IP (common on datacenter/VPN IPs). The parser is fine; "
+            "the backend refused. Fix: plug in a keyed search API (pass _search=/configure a "
+            "backend) or run from a residential IP.")
+    return body
 
 
 def web_search(config, query, k=8, queries=None, _search=None):
@@ -105,6 +120,8 @@ def web_search(config, query, k=8, queries=None, _search=None):
     for q in qs[:4]:                                          # cap multi-query fan-out
         try:
             merged.extend(parse_ddg_html(search(q)))
+        except SearchBackendBlocked as e:                     # refused, not empty — say so loudly
+            return {"ok": False, "error": str(e), "backend_blocked": True}
         except Exception as e:                                # noqa: BLE001  (a bad backend is soft)
             return {"ok": False, "error": f"search backend failed: {type(e).__name__}: {e}"}
     ranked = rank(dedup(merged), query or qs[0])[:k]
