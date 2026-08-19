@@ -139,11 +139,60 @@ def dryrun_webbench():
           json.load(open(os.path.join(d, "results.json"), encoding="utf-8"))["items"] == len(ITEMS))
 
 
+def dryrun_secv4():
+    print("\n" + "=" * 74)
+    print("DRY-RUN: run_secv4.py (68-item held-out, deterministic-primary + compare)")
+    print("=" * 74)
+    sys.path.insert(0, os.path.join(HERE, "evaluation", "development", "security_v4"))
+    from evaluation.run_secv4 import build_report, compare, _mean
+    from build_secv4 import items_as_dicts, grade_deterministic
+    from verification.verify import verify
+    from collections import defaultdict
+
+    items = items_as_dicts()
+    check("v4 loads the held-out set", len(items) >= 50, f"{len(items)} items")
+
+    def make_run(answerer, name):
+        rows = []
+        for it in items:
+            ans = answerer(it)
+            rows.append({"id": it["id"], "domain": it["domain"], "category": it["category"],
+                         "det_score": grade_deterministic(it, ans), "judge_score": None,
+                         "judge_detail": "", "verify_verdict": verify(ans, hits=None).verdict,
+                         "output": ans})
+        data = {"name": name, "model": f"stub/{name}", "model_revision": "x", "items": len(items),
+                "judge": False, "cost": {"mean_latency_s": 0.0, "peak_vram_gb": 0.0},
+                "results": rows}
+        d = os.path.join(OUT, name)
+        os.makedirs(d, exist_ok=True)
+        json.dump(data, open(os.path.join(d, "results.json"), "w", encoding="utf-8"), indent=2)
+        return data
+
+    # a "good" answerer that satisfies each item's show anchors; a "weak" one that says little
+    def good(it):
+        return " ".join(k for grp in it["anchors"]["show"] for k in grp[:1])
+    def weak(_it):
+        return "I am not sure; this looks fine."
+
+    import evaluation.run_secv4 as v4
+    v4.RESULTS = OUT                                   # redirect compare() to the temp runs
+    g = make_run(good, "secv4_stubgood")
+    make_run(weak, "secv4_stubweak")
+    check("v4 per-item loop + grade ran over every item", len(g["results"]) == len(items))
+    check("good answerer scores materially higher than weak",
+          (_mean([r["det_score"] for r in g["results"]]) or 0) > 0.6)
+    md = build_report(g)
+    check("v4 build_report produced a report", "Deterministic overall" in md)
+    cmp = compare("stubgood", "stubweak")
+    check("v4 compare() runs head-to-head", "HEAD-TO-HEAD" in cmp and "OVERALL" in cmp)
+
+
 def main() -> int:
     print("=" * 74)
-    print("RUN-SCRIPT DRY-RUN — secv3 + webbench orchestration on CPU (stub model)")
+    print("RUN-SCRIPT DRY-RUN — secv3 + secv4 + webbench orchestration on CPU (stub model)")
     print("=" * 74)
     dryrun_secv3()
+    dryrun_secv4()
     dryrun_webbench()
     print("\n" + "=" * 74)
     if fails:
