@@ -74,6 +74,19 @@ numbers — that is the verdict data. (Also saved to `secv3_<author>_judgedby_<j
 ```bash
 !python evaluation/compare_v3.py moonlight qwen25-coder-14b
 ```
+
+### Cell 6 — the methodology-scaffolding probe (does Qwen stop jumping to exploit?)
+Both models interpret the SAME real recon (Apache 2.4.25 + discovered high-value paths) through the
+identical `SECURITY_METHODOLOGY` scaffolding, trust boundary, and verification. Run each, then compare:
+```bash
+!python bridge/methodology_experiment.py --model moonlight
+!python bridge/methodology_experiment.py --model qwen
+!python bridge/methodology_experiment.py --compare
+```
+Read the `--compare` DECISION line. Rule: never switch on speed; Qwen becomes a Phase-12 candidate
+only if it does NOT jump from the banner to exploitation and shows no material regression vs Moonlight
+on tool_selection / methodology / evidence-vs-inference. One scenario is DIRECTIONAL — the 50–100 item
+head-to-head is what actually decides Phase 12.
 The comparison JSON is committable (it's small and it's the actual finding). To keep the raw runs,
 download `evaluation/results/` from the Kaggle output panel before the session ends (Kaggle wipes
 local storage on exit).
