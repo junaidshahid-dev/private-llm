@@ -131,7 +131,8 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
     # FABRICATED output — the case where every tool errored yet the answer reports results anyway
     # (a live run had the model invent a git status + fake revision after 4 failed calls).
     report = verify_call(final_text, hits=None, tools_ran=record["executed_tools"] or None,
-                         tool_results=record["results"])
+                         tool_results=record["results"],
+                         authorized_targets=(config.get("security_tools") or {}).get("authorized_targets"))
     record["verification"] = {"verdict": report.verdict,
                               "findings": [str(f) for f in report.findings],
                               "next": report._NEXT[report.verdict]}

@@ -87,9 +87,11 @@ def main() -> int:
         return tok.decode(out[0][ids.shape[-1]:], skip_special_tokens=True).strip()
 
     # the INTERPRET step of the loop, over REAL captured results
+    from mcp_layer import permissions as perm
+    authorized = (perm.load_config().get("security_tools") or {}).get("authorized_targets")
     analysis = controller.interpret(task, results, generate, policy_prompt=system_prompt())
     report = verify(analysis, hits=None, tools_ran=[r.get("tool") for r in results],
-                    tool_results=results)
+                    tool_results=results, authorized_targets=authorized)
 
     print("\n" + "=" * 74)
     print(f"{lock['model']} — ANALYSIS (over the real tool output):")

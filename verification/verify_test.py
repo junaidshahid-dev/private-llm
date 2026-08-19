@@ -142,6 +142,52 @@ def main() -> int:
           "Verification: PASS" in verify("Least privilege wins.").render()
           and "not proof" in verify("Least privilege wins.").render())
 
+    # ---- 7. research discipline: overclaim / severity / target authorization ----
+    print("\n7. research discipline — overclaim, unsupported severity, target authorization")
+    auth = [{"match": "lab.local", "note": "lab"}, {"match": "192.168.56.0/24"}]
+
+    # overclaim: a vuln asserted CONFIRMED with no tool and no hedge
+    check("confirmed-vuln claim (no evidence, no hedge) => WARN overclaim",
+          has(verify("This is a confirmed SQL injection vulnerability in the login form."),
+              "overclaim", "warn"))
+    check("exploitation-success claim (no tool) => WARN overclaim",
+          has(verify("The target was successfully exploited."), "overclaim", "warn"))
+    # cry-wolf guards for overclaim
+    check("HEDGED claim does not trip overclaim",
+          not has(verify("This is likely a SQL injection; it would need to be verified."),
+                  "overclaim"))
+    check("a real successful tool result suppresses overclaim",
+          not has(verify("This is a confirmed SQL injection vulnerability.",
+                         tool_results=[{"tool": "http_get", "result": {"ok": True, "output": "x"}}]),
+                  "overclaim"))
+    check("educational statement does not trip overclaim",
+          not has(verify("SQL injection is a serious vulnerability class."), "overclaim"))
+
+    # unsupported severity: asserted about a SPECIFIC assessment, unhedged, unbacked
+    check("critical severity for THIS assessment (no evidence) => WARN severity",
+          has(verify("We identified a critical-severity issue in the target application."),
+              "severity", "warn"))
+    check("educational 'critical-severity class' does NOT trip severity",
+          not has(verify("SQLi is a critical-severity vulnerability class."), "severity"))
+    check("hedged severity does not trip",
+          not has(verify("This may be a high-severity issue on the target."), "severity"))
+
+    # target authorization: an active action against a target not in the registry
+    check("active action on an UNAUTHORIZED target => WARN target_authorization",
+          has(verify("We scanned 203.0.113.9 and found port 80 open.", authorized_targets=auth),
+              "target_authorization", "warn"))
+    check("active action on an AUTHORIZED target is fine",
+          not has(verify("We scanned lab.local for services.", authorized_targets=auth),
+                  "target_authorization"))
+    check("authorized CIDR member is fine",
+          not has(verify("We scanned 192.168.56.20.", authorized_targets=auth),
+                  "target_authorization"))
+    check("check is inert when no registry is supplied",
+          not has(verify("We scanned 203.0.113.9."), "target_authorization"))
+    check("a host merely MENTIONED (not acted on) does not trip",
+          not has(verify("Apache 2.4.25 is documented on nmap.org.", authorized_targets=auth),
+                  "target_authorization"))
+
     print("\n" + "=" * 74)
     if fails:
         print(f"FAILED {len(fails)}: {', '.join(fails)}")

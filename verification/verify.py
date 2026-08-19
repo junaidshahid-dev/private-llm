@@ -35,7 +35,8 @@ from dataclasses import dataclass, field
 @dataclass
 class Finding:
     level: str          # "error" (deterministic defect) | "warn" | "info" (heuristic signal)
-    kind: str           # "math" | "code" | "grounding" | "phantom_action" | "contradiction"
+    kind: str           # math|code|grounding|phantom_action|tool_grounding|cve_format|
+                        # claim_grounding|overclaim|severity|target_authorization
     detail: str
     span: str = ""      # the offending text, for the caller to quote back
 
@@ -344,12 +345,117 @@ def check_claim_grounding(answer: str, tool_results: list[dict] | None) -> list[
     return out
 
 
+# ---- 7. research discipline: overclaim, unsupported severity, target authorization ----------
+# The research-agent rule "never treat a hypothesis as a confirmed vulnerability" (research/findings
+# enforces it for STRUCTURED findings) also has to hold for FREE-TEXT answers. These are HEURISTIC
+# and WARN-level: they surface a calibration/scope issue, they do not overrule. Every one is
+# HEDGE-SUPPRESSED (if the answer already says "likely / possible / would need to verify ...", it is
+# being appropriately cautious and nothing fires) and EVIDENCE-AWARE (a real successful tool result
+# suppresses the overclaim/severity flags), so they stay quiet on ordinary security Q&A.
+_HEDGE = re.compile(
+    r"\b(hypothes|likel|possibl|potential|unconfirmed|not\s+confirmed|may\s+be|might\s+be|"
+    r"could\s+be|would\s+need|to\s+verify|to\s+confirm|suspect|appears?\s+to|seems?\s+to|"
+    r"candidate|unverified|not\s+proven|before\s+confirming|cannot\s+confirm|not\s+yet|"
+    r"needs?\s+(?:validation|testing|verifying))\b", re.I)
+_CONFIRM_VULN = re.compile(
+    r"\b(confirmed|verified|proven|demonstrated)\b[^.\n]{0,45}\b(vulnerab|exploit|rce|inject|"
+    r"bypass|traversal|disclosure|ssrf|xxe|idor|overflow)\w*", re.I)
+_IS_VULN_ASSERT = re.compile(
+    r"\bis\s+(?:definitely|certainly)\s+vulnerable\b|\bis\s+a\s+confirmed\s+(?:vulnerab|rce)\w*", re.I)
+_EXPLOIT_SUCCESS = re.compile(
+    r"\b(successfully\s+exploited|gained\s+(?:a\s+)?(?:root|shell|access)|achieved\s+rce|"
+    r"popped\s+a\s+shell|obtained\s+(?:a\s+)?shell|established\s+persistence|full\s+compromise)\b",
+    re.I)
+_SEVERITY = re.compile(
+    r"\b(?:critical|high)[-\s]?(?:severity|risk)\b|\bseverity[:\s]+(?:critical|high)\b|"
+    r"\bcvss[:\s]*(?:score\s*(?:of\s*)?)?(?:9|10|8)(?:\.\d)?\b", re.I)
+_ASSESSMENT_CTX = re.compile(
+    r"\b(the target|this host|this endpoint|this server|we\s+(?:found|confirmed|identified|"
+    r"observed)|affected\s+component|proof[- ]of[- ]concept|reproduc)\b", re.I)
+# an active, already-happened action pointed DIRECTLY at a target token (kept tight to avoid noise)
+_ACTION_TARGET = re.compile(
+    r"\b(scanned|nmapped|exploited|attacked|fuzzed|brute[-\s]?forced|probed|authenticated\s+to|"
+    r"connected\s+to)\s+(?:the\s+|host\s+|target\s+)?"
+    r"((?:\d{1,3}\.){3}\d{1,3}|https?://[^\s]+|(?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _hedged(answer: str) -> bool:
+    return bool(_HEDGE.search(answer or ""))
+
+
+def _has_ok_tool(tool_results) -> bool:
+    return any((r.get("result") or {}).get("ok") for r in (tool_results or []))
+
+
+def check_overclaim(answer: str, tool_results: list[dict] | None = None) -> list[Finding]:
+    """A vulnerability asserted as CONFIRMED/exploited in free text, with no validating tool result
+    and no hedge -> WARN to downgrade or validate. Surfaces; does not overrule."""
+    a = answer or ""
+    if _hedged(a) or _has_ok_tool(tool_results):
+        return []
+    out = []
+    m = _CONFIRM_VULN.search(a) or _IS_VULN_ASSERT.search(a)
+    if m:
+        out.append(Finding("warn", "overclaim",
+                           "states a vulnerability as CONFIRMED/proven, but no validating tool result "
+                           "is present and the text does not hedge - downgrade to LIKELY/POSSIBLE or "
+                           "run a non-destructive validating test", m.group(0)[:80]))
+    e = _EXPLOIT_SUCCESS.search(a)
+    if e:
+        out.append(Finding("warn", "overclaim",
+                           "claims exploitation SUCCESS with no successful tool result to support it "
+                           "- treat as unproven until a validating run confirms it", e.group(0)[:80]))
+    return out
+
+
+def check_unsupported_severity(answer: str, tool_results: list[dict] | None = None) -> list[Finding]:
+    """A high/critical severity asserted ABOUT A SPECIFIC ASSESSMENT (not a general class fact),
+    unhedged and unbacked by a tool result -> WARN. Tied to assessment context so it stays quiet on
+    educational answers like 'SQLi is a critical-severity class'."""
+    a = answer or ""
+    if _hedged(a) or _has_ok_tool(tool_results):
+        return []
+    sev = _SEVERITY.search(a)
+    if sev and _ASSESSMENT_CTX.search(a):
+        return [Finding("warn", "severity",
+                       "asserts a high/critical severity for this assessment without a validating "
+                       "result - unvalidated severity should be labelled ASSERTED and backed by "
+                       "evidence before reporting", sev.group(0)[:60])]
+    return []
+
+
+def check_target_authorization(answer: str, authorized_targets: list | None) -> list[Finding]:
+    """If the answer claims an active action performed DIRECTLY against a target that is NOT in the
+    operator's authorized_targets, surface it (WARN) - either a phantom claim or an out-of-scope
+    action. Only runs when authorized_targets is provided; target extraction is kept tight (verb
+    immediately followed by an IP/URL/host) to avoid crying wolf on hosts merely mentioned."""
+    if authorized_targets is None:
+        return []
+    from mcp_layer.security import target_authorized
+    out, seen = [], set()
+    for m in _ACTION_TARGET.finditer(answer or ""):
+        verb, tgt = m.group(1), m.group(2).rstrip(".,);")
+        if tgt in seen:
+            continue
+        seen.add(tgt)
+        ok, _why = target_authorized(tgt, authorized_targets)
+        if not ok:
+            out.append(Finding("warn", "target_authorization",
+                               f"answer claims an active action ('{verb} {tgt}') against a target "
+                               "NOT in authorized_targets - if this ran it was out of scope; verify "
+                               "and confirm authorization", f"{verb} {tgt}"))
+    return out
+
+
 # ---- orchestrator -----------------------------------------------------------
 def verify(answer: str, hits: list[dict] | None = None,
            tools_ran: list[str] | None = None,
-           tool_results: list[dict] | None = None) -> Report:
+           tool_results: list[dict] | None = None,
+           authorized_targets: list | None = None) -> Report:
     """Run every check. `hits` = retrieved RAG chunks; `tools_ran` = tools that executed OK;
-    `tool_results` = the actual {tool, result} records, used to catch fabricated tool output."""
+    `tool_results` = the actual {tool, result} records, used to catch fabricated tool output;
+    `authorized_targets` = the operator's authorization registry (list of dicts) — when supplied,
+    an answer claiming an active action against an unauthorized target is flagged."""
     r = Report()
     r.add(*check_math(answer))
     r.add(*check_code(answer))
@@ -358,6 +464,9 @@ def verify(answer: str, hits: list[dict] | None = None,
     r.add(*check_tool_grounding(answer, tool_results))
     r.add(*check_cve_format(answer))
     r.add(*check_claim_grounding(answer, tool_results))
+    r.add(*check_overclaim(answer, tool_results))
+    r.add(*check_unsupported_severity(answer, tool_results))
+    r.add(*check_target_authorization(answer, authorized_targets))
     return r
 
 
