@@ -86,7 +86,20 @@ identical `SECURITY_METHODOLOGY` scaffolding, trust boundary, and verification. 
 Read the `--compare` DECISION line. Rule: never switch on speed; Qwen becomes a Phase-12 candidate
 only if it does NOT jump from the banner to exploitation and shows no material regression vs Moonlight
 on tool_selection / methodology / evidence-vs-inference. One scenario is DIRECTIONAL — the 50–100 item
-head-to-head is what actually decides Phase 12.
+head-to-head (Cell 7) is what actually decides Phase 12.
+
+### Cell 7 — THE Phase-12 decider: 68-item held-out head-to-head (Security Benchmark v4)
+Deterministic (unbiased, model-free) is the headline; the self-judge does NOT decide.
+```bash
+!python evaluation/run_secv4.py --model moonlight
+!python evaluation/run_secv4.py --model qwen
+!python evaluation/run_secv4.py --compare moonlight qwen25-coder-14b
+```
+Read the `--compare` OVERALL (deterministic) + per-category table + VERDICT. A gap < 0.03 over 68
+items is a statistical tie. Decision: a material, consistent deterministic edge (not speed) is what
+moves Phase 12. `--judge` adds the optimistic self-judge (2× generations) if you want the biased
+number for contrast — not required. Fits one model in VRAM at a time; free the first model's HF cache
+(Cell 3 pattern) before loading the second if disk is tight.
 The comparison JSON is committable (it's small and it's the actual finding). To keep the raw runs,
 download `evaluation/results/` from the Kaggle output panel before the session ends (Kaggle wipes
 local storage on exit).
