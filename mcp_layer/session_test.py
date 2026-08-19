@@ -194,6 +194,37 @@ def main() -> int:
           rec["verification"]["verdict"])
     check("the errored run recorded no successful tools", rec["executed_tools"] == [])
 
+    # ---- H. loop safety: a model that re-proposes the SAME action is escalated, not spun ------
+    print("\nH. repeated-action detection escalates to a human before the round cap")
+    ex, calls = recording_executor()
+    rec = run_session("keep reading the same file",
+                      lambda _m: FS_PROPOSAL,          # proposes the identical action every round
+                      approver=lambda p: True, executor=ex, max_rounds=6)
+    check("stops early via escalation, not the cap", rec.get("escalated") is not None, str(rec.get("escalated")))
+    check("escalation reason is repeated action", "repeated" in (rec.get("escalated") or {}).get("reason", ""))
+    check("executed twice then escalated at the top of round 3 (no endless spin)",
+          len(calls) == 2, f"{len(calls)} executions")
+    check("no forced-final cap was reached", not any(r.get("forced_final") for r in rec["rounds"]))
+
+    # ---- I. loop safety: distinct actions that all yield nothing -> diminishing returns --------
+    print("\nI. diminishing-returns detection (distinct actions, no new information)")
+
+    def erroring(proposal, config, operator_ack=False):
+        return {"ok": False, "tool": proposal.get("tool"), "error": "not found"}
+    ex_calls = {"n": 0}
+
+    def counting_erroring(proposal, config, operator_ack=False):
+        ex_calls["n"] += 1
+        return erroring(proposal, config)
+    rec = run_session("try several files",
+                      scripted('{"tool":"fs_read","arguments":{"path":"a.txt"}}',
+                               '{"tool":"fs_read","arguments":{"path":"b.txt"}}',
+                               '{"tool":"fs_read","arguments":{"path":"c.txt"}}', "final answer"),
+                      approver=lambda p: True, executor=counting_erroring, max_rounds=6)
+    check("escalates on diminishing returns", "diminishing" in (rec.get("escalated") or {}).get("reason", ""),
+          str(rec.get("escalated")))
+    check("stopped after two no-gain rounds (did not run the third)", ex_calls["n"] == 2, str(ex_calls))
+
     print("\n" + "=" * 74)
     if fails:
         print(f"FAILED {len(fails)}: {', '.join(fails)}")

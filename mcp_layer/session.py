@@ -68,12 +68,22 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
               "results": [], "interpretation": None, "verification": None, "executed_tools": []}
 
     from mcp_layer import killswitch
+    from research.investigation import Investigation
+    inv = Investigation(objective=question, max_rounds=max_rounds)
     final_text, hit_cap = "", False
     for rnd in range(1, max_rounds + 1):
         if killswitch.is_engaged():              # global STOP overrides the loop — escalate to human
             record["halted"] = killswitch.status()
             record["rounds"].append({"round": rnd, "text": "", "decisions": [],
                                      "halted": "kill switch engaged — session stopped"})
+            break
+        # loop safety: stop spinning. Checked at the TOP of a round (so a round already in progress is
+        # never cut short); the max_rounds cap is handled below with a forced final answer.
+        if rnd > 1 and (inv.repeated_action_detected() or inv.diminishing_returns()):
+            reason = ("repeated action (no new information)" if inv.repeated_action_detected()
+                      else "diminishing returns (no new information over consecutive rounds)")
+            record["escalated"] = {"reason": reason, "round": rnd}
+            record["rounds"].append({"round": rnd, "text": "", "decisions": [], "escalated": reason})
             break
         text = (generate(messages) or "").strip()
         final_text = text
@@ -107,6 +117,10 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
             rrec["decisions"].append(decision)
             record["decisions"].append(decision)
 
+        # feed the round's executed actions to the investigation (drives repeated/diminishing checks)
+        inv.record_round([{"tool": d["tool"], "arguments": d.get("arguments") or {},
+                           "result": d.get("result") or {}}
+                          for d in rrec["decisions"] if d["approved"]])
         if not any_executed:
             break                                # operator denied everything -> stop, don't spin
         if rnd == max_rounds:
