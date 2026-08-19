@@ -142,7 +142,16 @@ def plan(question, generate, config=None, policy_prompt="") -> dict:
 
 
 def execute_proposal(proposal: dict, config=None, operator_ack: bool = False) -> dict:
-    """OPERATOR-only. Runs one approved proposal. Refuses without an explicit operator ack."""
+    """OPERATOR-only. Runs one approved proposal. Refuses without an explicit operator ack, and is
+    OVERRIDDEN by the global kill switch — an engaged switch blocks execution even with a valid ack."""
+    from mcp_layer import killswitch
+    _p = proposal or {}
+    blocked = killswitch.guard(tool=_p.get("tool", ""),
+                               target=str((_p.get("arguments") or {}).get("target", "")))
+    if blocked is not None:
+        secmod.audit("kill_switch_block", _p.get("tool", "?"),
+                     str((_p.get("arguments") or {}).get("target", "")), "kill switch engaged")
+        return blocked
     if operator_ack is not True:
         return {"ok": False, "error": "execution requires explicit operator acknowledgement; "
                 "the model cannot trigger this"}

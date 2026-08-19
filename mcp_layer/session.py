@@ -67,8 +67,14 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
     record = {"question": question, "analysis": "", "rounds": [], "proposals": [], "decisions": [],
               "results": [], "interpretation": None, "verification": None, "executed_tools": []}
 
+    from mcp_layer import killswitch
     final_text, hit_cap = "", False
     for rnd in range(1, max_rounds + 1):
+        if killswitch.is_engaged():              # global STOP overrides the loop — escalate to human
+            record["halted"] = killswitch.status()
+            record["rounds"].append({"round": rnd, "text": "", "decisions": [],
+                                     "halted": "kill switch engaged — session stopped"})
+            break
         text = (generate(messages) or "").strip()
         final_text = text
         if rnd == 1:
