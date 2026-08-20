@@ -70,6 +70,27 @@ def schema() -> list[dict]:
          "read_only": True, "side_effects": "none", "required_binary": None,
          "capabilities": ["dependency_analysis", "supply_chain"],
          "verification_method": "reports pinning discipline; not a known-CVE lookup (no network)"},
+        {"name": "ioc_extract",
+         "description": "Read-only extraction of indicators of compromise (IPs, URLs, domains, "
+                        "hashes, emails, CVEs, BTC addresses) from a log/artifact file.",
+         "arguments": {"path": "file inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["incident_response", "forensics"],
+         "verification_method": "IOCs are leads to corroborate, not proof"},
+        {"name": "log_analyze",
+         "description": "Read-only log analysis: timestamped timeline, IOCs, and tamper / "
+                        "brute-force anomaly signals.",
+         "arguments": {"path": "log file inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["incident_response", "forensics"],
+         "verification_method": "OBSERVED log text; anomalies are leads to corroborate"},
+        {"name": "cloud_scan",
+         "description": "Read-only scan of a cloud config (IAM/Terraform/CloudFormation/k8s) for "
+                        "wildcard IAM, public storage, 0.0.0.0/0 rules, disabled encryption, secrets.",
+         "arguments": {"path": "cloud config file inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["cloud_security", "config_analysis"],
+         "verification_method": "cites file:line; a hit is a lead to confirm in context"},
     ]
 
 
@@ -224,6 +245,54 @@ def _dependency_audit(config, args):
     return {"ok": True, "result": "\n".join(lines), "loose": r["loose"], "pinned": r["pinned"]}
 
 
+def _ioc_extract(config, args):
+    got, err = _read_allowed(config, args.get("path", ""))
+    if err:
+        return err
+    detail, text = got
+    from analysis.ir import extract_iocs
+    iocs = extract_iocs(text)
+    total = sum(len(v) for v in iocs.values())
+    lines = [f"IOCs from {os.path.basename(detail)} — {total} indicator(s) (leads to corroborate):"]
+    for k, v in iocs.items():
+        lines.append(f"  {k}: {', '.join(v[:20])}")
+    if not iocs:
+        lines.append("  no indicators found.")
+    return {"ok": True, "result": "\n".join(lines), "iocs": iocs}
+
+
+def _log_analyze(config, args):
+    got, err = _read_allowed(config, args.get("path", ""))
+    if err:
+        return err
+    detail, text = got
+    from analysis.ir import analyze_log
+    a = analyze_log(text)
+    lines = [f"log analysis of {os.path.basename(detail)} — {a['events']} timestamped event(s), "
+             f"{len(a['anomalies'])} anomaly signal(s):"]
+    for an in a["anomalies"]:
+        lines.append(f"  [{an['sign']}] {an['detail']}")
+    if not a["anomalies"]:
+        lines.append("  no tampering / brute-force signals.")
+    return {"ok": True, "result": "\n".join(lines), "iocs": a["iocs"],
+            "anomalies": a["anomalies"], "events": a["events"]}
+
+
+def _cloud_scan(config, args):
+    got, err = _read_allowed(config, args.get("path", ""))
+    if err:
+        return err
+    detail, text = got
+    from analysis.cloud import scan_cloud
+    issues = scan_cloud(text)
+    lines = [f"cloud config scan of {os.path.basename(detail)} — {len(issues)} issue(s):"]
+    for i in issues:
+        lines.append(f"  L{i['line']} [{i['severity']}] {i['issue']} — {i['why']}")
+    if not issues:
+        lines.append("  no risky cloud-config patterns found.")
+    return {"ok": True, "result": "\n".join(lines), "issues": issues}
+
+
 DISPATCH = {
     "fs_list": _fs_list,
     "fs_read": _fs_read,
@@ -234,6 +303,9 @@ DISPATCH = {
     "source_scan": _source_scan,
     "config_scan": _config_scan,
     "dependency_audit": _dependency_audit,
+    "ioc_extract": _ioc_extract,
+    "log_analyze": _log_analyze,
+    "cloud_scan": _cloud_scan,
 }
 
 

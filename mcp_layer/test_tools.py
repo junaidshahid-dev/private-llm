@@ -111,6 +111,18 @@ def main() -> int:
     check("config_scan + dependency_audit are path-confined",
           not dispatch({"tool": "config_scan", "arguments": {"path": os.path.join(HERE, "README.md")}},
                        cfg_src)["ok"])
+    lp = os.path.join(td, "access.log")
+    open(lp, "w", encoding="utf-8").write("2026-08-20T10:00:00 login from 203.0.113.9\n"
+                                          + "\n".join(["Failed password for root"] * 6))
+    rl = dispatch({"tool": "log_analyze", "arguments": {"path": lp}}, cfg_src)
+    check("log_analyze finds IOCs + an auth-failure anomaly",
+          rl["ok"] and "203.0.113.9" in rl["iocs"].get("ipv4", []) and rl["anomalies"])
+    ri = dispatch({"tool": "ioc_extract", "arguments": {"path": lp}}, cfg_src)
+    check("ioc_extract returns indicators", ri["ok"] and ri["iocs"].get("ipv4"))
+    clp = os.path.join(td, "iam.json")
+    open(clp, "w", encoding="utf-8").write('{"Effect":"Allow","Action":"*","Resource":"*"}')
+    rcl = dispatch({"tool": "cloud_scan", "arguments": {"path": clp}}, cfg_src)
+    check("cloud_scan flags wildcard IAM", rcl["ok"] and len(rcl.get("issues", [])) >= 1)
 
     print("\n3. permission unit checks")
     ok, _ = perm.path_allowed(os.path.join(HERE, "rag"), [HERE])
