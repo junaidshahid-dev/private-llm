@@ -21,6 +21,7 @@ SKIP = (".venv", "site-packages", "__pycache__", "scratch", os.sep + "node_modul
 extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_secv3.py"),
          os.path.join(HERE, "evaluation", "development", "security_v4", "build_secv4.py"),
          os.path.join(HERE, "evaluation", "development", "security_v5", "build_secv5.py"),
+         os.path.join(HERE, "evaluation", "pipeline_bench.py"),
          os.path.join(HERE, "web", "benchmark.py"),
          os.path.join(HERE, "memory", "benchmark.py")]
 
