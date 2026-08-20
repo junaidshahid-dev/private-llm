@@ -117,6 +117,8 @@ def main() -> int:
     ap.add_argument("--compare", nargs=2, metavar=("A", "B"))
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--judge-tokens", type=int, default=256)
+    ap.add_argument("--adapter", help="apply a trained LoRA adapter dir on top of the base "
+                    "(e.g. models/experiment-001/final) to score the fine-tune vs the base")
     args = ap.parse_args()
 
     if args.report:
@@ -153,6 +155,12 @@ def main() -> int:
     t0 = time.time()
     model = AutoModelForCausalLM.from_pretrained(
         lock["model"], revision=lock["revision"], quantization_config=bnb, device_map={"": 0})
+    if args.adapter:
+        from peft import PeftModel
+        ad = args.adapter if os.path.isabs(args.adapter) else os.path.join(HERE, args.adapter)
+        model = PeftModel.from_pretrained(model, ad)
+        acfg = json.load(open(os.path.join(ad, "adapter_config.json"), encoding="utf-8"))
+        print(f"adapter applied: {sorted(acfg['target_modules'])}  r={acfg.get('r')}")
     load_s = time.time() - t0
     model.eval()
     tok = AutoTokenizer.from_pretrained(lock["model"], revision=lock["revision"],
@@ -188,7 +196,10 @@ def main() -> int:
 
     peak = torch.cuda.max_memory_allocated() / 1e9
     mtag = _mtag(lock)
+    if args.adapter:                                  # distinct dir so base vs fine-tune --compare
+        mtag += "_" + os.path.basename(os.path.dirname(args.adapter.rstrip("/\\")))
     data = {"name": f"secv5_{mtag}", "model": lock["model"], "model_revision": lock["revision"],
+            "adapter": args.adapter or None,
             "items": len(items), "judge": bool(args.judge),
             "environment": {"transformers": transformers.__version__,
                             "device": torch.cuda.get_device_name(0),
