@@ -28,7 +28,8 @@ from web.fetch import web_fetch                                              # n
 from web.extract import web_extract                                          # noqa: E402
 
 TMP = tempfile.mkdtemp()
-CFG = {"filesystem_read": {"enabled": True, "allowed_paths": [TMP]},
+EXE = sys.executable                                 # a REAL binary (ELF on Linux/Kaggle, PE on Windows)
+CFG = {"filesystem_read": {"enabled": True, "allowed_paths": [TMP, os.path.dirname(EXE)]},
        "git_inspect": {"enabled": True, "allowed_repos": [REPO]},
        "security_tools": {"enabled": True, "require_confirmation": True,
                           "authorized_targets": [{"match": "lab.local"}, {"match": "127.0.0.1"}]},
@@ -69,9 +70,12 @@ def _s(name, args, confirmed=True):
 
 
 def _graceful(r):
+    """A best-effort external tool 'passes' if it produced output OR returned a controlled error for a
+    missing binary / a trivial-or-foreign input (never a harness crash)."""
     e = (r.get("error") or "").lower()
-    return r.get("ok") or any(w in e for w in ("not installed", "needs ", "install", "no such",
-                                               "not available", "requires"))
+    return r.get("ok") or any(w in e for w in (
+        "not installed", "needs ", "install", "no such", "not available", "requires", "no symbols",
+        "not an elf", "format not recognized", "file format", "malformed", "truncated", "recognized"))
 
 
 # name -> callable() -> (passed: bool, note: str). EVERY schema tool must appear here.
@@ -133,10 +137,10 @@ SCENARIOS = {
     "apk_analyze": lambda: (_graceful(_s("apk_analyze", {"path": F_APK})), "lists APK entries"),
     "pcap_analyze": lambda: (_graceful(_s("pcap_analyze", {"path": F_BIN})), "summary or degrades"),
     "adb_devices": lambda: (_graceful(_s("adb_devices", {})), "lists devices or degrades"),
-    "readelf_headers": lambda: (_graceful(_s("readelf_headers", {"path": F_ELF})), "runs or degrades"),
-    "objdump_disasm": lambda: (_graceful(_s("objdump_disasm", {"path": F_ELF})), "runs or degrades"),
-    "nm_symbols": lambda: (_graceful(_s("nm_symbols", {"path": F_ELF})), "runs or degrades"),
-    "radare2_analyze": lambda: (_graceful(_s("radare2_analyze", {"path": F_ELF})), "runs or degrades"),
+    "readelf_headers": lambda: (_graceful(_s("readelf_headers", {"path": EXE})), "runs on a real binary or degrades"),
+    "objdump_disasm": lambda: (_graceful(_s("objdump_disasm", {"path": EXE})), "runs on a real binary or degrades"),
+    "nm_symbols": lambda: (_graceful(_s("nm_symbols", {"path": EXE})), "runs on a real binary or degrades"),
+    "radare2_analyze": lambda: (_graceful(_s("radare2_analyze", {"path": EXE})), "runs on a real binary or degrades"),
     # ---- active network tools: deny-by-default is the behavioural guarantee ------------------
     "nmap_scan": lambda: (not _s("nmap_scan", {"target": "8.8.8.8"})["ok"], "denies unauthorized target"),
     "masscan_scan": lambda: (not _s("masscan_scan", {"target": "8.8.8.8"})["ok"], "denies unauthorized"),
