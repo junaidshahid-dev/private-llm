@@ -100,6 +100,18 @@ def main() -> int:
           r["ok"] or "not installed" in r.get("error", ""), str(r.get("error")))
 
     # ---- dispatch routing ----------------------------------------------------
+    print("\n5b. binary_info (pure header parse) + gated RE tools")
+    elf = wf("mini.elf", b"\x7fELF\x02\x01\x01" + b"\x00" * 9 + b"\x02\x00\x3e\x00")
+    bi = sec.binary_info(cfg, elf)
+    check("binary_info identifies ELF x86-64", bi["ok"] and bi["result"]["format"] == "ELF"
+          and bi["result"]["machine"] == "x86-64", str(bi.get("result")))
+    check("binary_info is path-confined",
+          not sec.binary_info(cfg, os.path.join(HERE, "MODEL_SPEC.lock.json"))["ok"])
+    re_r = sec.readelf_headers(cfg, elf)
+    check("readelf_headers runs OR degrades gracefully when absent",
+          re_r["ok"] or "not installed" in re_r.get("error", ""), str(re_r)[:80])
+    check("binary_info denied when the group is disabled", not sec.binary_info(disabled, elf)["ok"])
+
     print("\n6. dispatch routes the new tools")
     check("dispatch runs hash_file",
           sec.dispatch({"tool": "hash_file", "arguments": {"path": hp}}, cfg)["ok"])

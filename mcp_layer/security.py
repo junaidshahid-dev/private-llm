@@ -210,6 +210,30 @@ def schema() -> list[dict]:
          "read_only": True, "requires_authorization": True, "side_effects": "network:read",
          "required_binary": None, "capabilities": ["web", "recon", "http_inspection"],
          "verification_method": "status/headers/body are OBSERVED; body is UNTRUSTED data"},
+        {"name": "binary_info", "description": "Identify a file's format (ELF/PE/Mach-O) and parse its "
+         "header (class/type/machine/sections) — pure, read-only, always available.",
+         "arguments": {"path": "file inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["reverse_engineering", "malware_triage"],
+         "verification_method": "OBSERVED magic/header structure, not behaviour"},
+        {"name": "readelf_headers", "description": "readelf -h -l -d of an ELF file (read-only). "
+         "Degrades gracefully if readelf is absent.",
+         "arguments": {"path": "ELF file inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": "readelf",
+         "capabilities": ["reverse_engineering"],
+         "verification_method": "OBSERVED ELF header/segment structure"},
+        {"name": "objdump_disasm", "description": "objdump -d (intel) disassembly of a binary "
+         "(read-only). Degrades gracefully if objdump is absent.",
+         "arguments": {"path": "binary inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": "objdump",
+         "capabilities": ["reverse_engineering"],
+         "verification_method": "OBSERVED disassembly; reading its behaviour is inference"},
+        {"name": "nm_symbols", "description": "nm -C defined symbols of a binary (read-only). "
+         "Degrades gracefully if nm is absent.",
+         "arguments": {"path": "binary inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": "nm",
+         "capabilities": ["reverse_engineering"],
+         "verification_method": "OBSERVED symbol table"},
     ]
 
 
@@ -545,6 +569,61 @@ def http_get(config, url, confirmed=False, _fetch=None):
     return {"ok": False, "error": f"too many redirects (> {HTTP_MAX_REDIRECTS})", "redirects": chain}
 
 
+def binary_info(config, path, confirmed=False):
+    """Pure, read-only: identify the file format and parse its header (ELF/PE/Mach-O). Always works."""
+    off = _need_group(config)
+    if off:
+        return off
+    ok, detail = perm.check_fs_read(config, path)
+    if not ok:
+        return {"ok": False, "error": detail}
+    try:
+        data = open(detail, "rb").read(65536)
+    except OSError as e:
+        return {"ok": False, "error": f"cannot read: {e}"}
+    from analysis.binary import identify
+    return {"ok": True, "result": identify(data),
+            "note": "OBSERVED file structure (magic/header) — not a behavioural claim"}
+
+
+def _run_re_tool(config, path, binary, args, note):
+    """Shared runner for the external RE tools (readelf/objdump/nm). Read-only over a local file;
+    degrades gracefully when the binary is not installed (readiness ladder: implemented -> gated ->
+    live-tested where the binary exists)."""
+    off = _need_group(config)
+    if off:
+        return off
+    ok, detail = perm.check_fs_read(config, path)
+    if not ok:
+        return {"ok": False, "error": detail}
+    if shutil.which(binary) is None:
+        return {"ok": False, "error": f"{binary} is not installed on this host (tool implemented + "
+                f"gated; live-tested where {binary} is available)"}
+    try:
+        r = subprocess.run([binary, *args, detail], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"{binary} timed out"}
+    if r.returncode != 0 and not (r.stdout or "").strip():
+        return {"ok": False, "error": (r.stderr or f"{binary} error").strip()[:500]}
+    audit("executed", binary, detail, " ".join(args))
+    return {"ok": True, "result": (r.stdout or "").strip()[:100_000], "note": note}
+
+
+def readelf_headers(config, path, confirmed=False):
+    return _run_re_tool(config, path, "readelf", ["-h", "-l", "-d"],
+                        "ELF headers/segments (OBSERVED structure); readelf")
+
+
+def objdump_disasm(config, path, confirmed=False):
+    return _run_re_tool(config, path, "objdump", ["-d", "-M", "intel"],
+                        "disassembly (OBSERVED); reading it is inference until validated; objdump")
+
+
+def nm_symbols(config, path, confirmed=False):
+    return _run_re_tool(config, path, "nm", ["-C", "--defined-only"],
+                        "defined symbols (OBSERVED); nm")
+
+
 DISPATCH = {
     "url_info": lambda c, a, cf: url_info(c, a.get("url", ""), cf),
     "qr_decode": lambda c, a, cf: qr_decode(c, a.get("path", ""), cf),
@@ -559,6 +638,10 @@ DISPATCH = {
     "ffuf_discover": lambda c, a, cf: ffuf_discover(c, a.get("target", ""), a.get("wordlist"), cf),
     "adb_devices": lambda c, a, cf: adb_devices(c, cf),
     "http_get": lambda c, a, cf: http_get(c, a.get("url", ""), cf),
+    "binary_info": lambda c, a, cf: binary_info(c, a.get("path", ""), cf),
+    "readelf_headers": lambda c, a, cf: readelf_headers(c, a.get("path", ""), cf),
+    "objdump_disasm": lambda c, a, cf: objdump_disasm(c, a.get("path", ""), cf),
+    "nm_symbols": lambda c, a, cf: nm_symbols(c, a.get("path", ""), cf),
 }
 
 
