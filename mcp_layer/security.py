@@ -238,6 +238,12 @@ def schema() -> list[dict]:
          "read_only": True, "side_effects": "none", "required_binary": "nm",
          "capabilities": ["reverse_engineering"],
          "verification_method": "OBSERVED symbol table"},
+        {"name": "radare2_analyze", "description": "radare2 static auto-analysis (function list) of a "
+         "binary (read-only). Degrades gracefully if r2 is absent.",
+         "arguments": {"path": "binary inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": "r2",
+         "capabilities": ["reverse_engineering"],
+         "verification_method": "OBSERVED static analysis; behaviour is inference until validated"},
         {"name": "dns_lookup", "description": "Resolve an AUTHORIZED target's hostname (forward + "
          "reverse DNS). Requires confirmation.",
          "arguments": {"target": "an authorized host/domain"},
@@ -664,6 +670,11 @@ def nm_symbols(config, path, confirmed=False):
                         "defined symbols (OBSERVED); nm")
 
 
+def radare2_analyze(config, path, confirmed=False):
+    return _run_re_tool(config, path, "r2", ["-q", "-A", "-c", "afl"],
+                        "radare2 auto-analysis function list (OBSERVED structure, static only)")
+
+
 def _host_port(target: str, default_port: int) -> tuple[str, int]:
     host = _host_of(target)
     if ":" in host and not host.count(":") > 1:      # host:port (not a bare IPv6)
@@ -764,6 +775,7 @@ DISPATCH = {
     "readelf_headers": lambda c, a, cf: readelf_headers(c, a.get("path", ""), cf),
     "objdump_disasm": lambda c, a, cf: objdump_disasm(c, a.get("path", ""), cf),
     "nm_symbols": lambda c, a, cf: nm_symbols(c, a.get("path", ""), cf),
+    "radare2_analyze": lambda c, a, cf: radare2_analyze(c, a.get("path", ""), cf),
     "dns_lookup": lambda c, a, cf: dns_lookup(c, a.get("target", ""), cf),
     "tls_inspect": lambda c, a, cf: tls_inspect(c, a.get("target", ""), cf),
     "web_headers": lambda c, a, cf: web_headers(c, a.get("url", "") or a.get("target", ""), cf),

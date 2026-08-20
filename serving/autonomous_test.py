@@ -100,6 +100,25 @@ def main() -> int:
     check("no tool executed while the kill switch was engaged", ex2 == [], str(ex2))
     killswitch.clear(operator_ack=True)
 
+    print("\n6. memory: findings persist; a later assessment recalls prior knowledge")
+    from memory.store import MemoryStore
+    store = MemoryStore(path=os.path.join(tempfile.mkdtemp(), "mem.json"), project="assess")
+
+    def gen_scan():
+        q = ['{"tool":"source_scan","arguments":{"path":"app.py"}}', "done."]
+        return lambda m: q.pop(0) if q else "done."
+
+    s1 = session_policy.start_session("assess app source", ["lab.local"], "recon",
+                                      operator_ack=True, config=cfg)["session"]
+    o1 = run_assessment(s1, gen_scan(), config=cfg, executor=executor, store=store)
+    check("findings were persisted to memory",
+          o1["memory"] and o1["memory"]["stored"] >= 1, str(o1["memory"]))
+    s2 = session_policy.start_session("assess app source", ["lab.local"], "recon",
+                                      operator_ack=True, config=cfg)["session"]
+    o2 = run_assessment(s2, lambda m: "done.", config=cfg, executor=executor, store=store)
+    check("prior knowledge is recalled on the next assessment of the same target",
+          len(o2["prior_knowledge"]) >= 1, str(o2["prior_knowledge"]))
+
     print("\n" + "=" * 74)
     if fails:
         print(f"FAILED {len(fails)}: {', '.join(fails)}")

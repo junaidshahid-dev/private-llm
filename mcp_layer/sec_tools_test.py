@@ -110,6 +110,9 @@ def main() -> int:
     re_r = sec.readelf_headers(cfg, elf)
     check("readelf_headers runs OR degrades gracefully when absent",
           re_r["ok"] or "not installed" in re_r.get("error", ""), str(re_r)[:80])
+    r2 = sec.radare2_analyze(cfg, elf)
+    check("radare2_analyze runs OR degrades gracefully when absent",
+          r2["ok"] or "not installed" in r2.get("error", ""), str(r2)[:80])
     check("binary_info denied when the group is disabled", not sec.binary_info(disabled, elf)["ok"])
 
     print("\n5c. dns_lookup + tls_inspect (gated recon, injectable for testing)")

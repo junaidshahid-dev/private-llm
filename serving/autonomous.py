@@ -26,9 +26,27 @@ def _hyp_from_finding(f: dict) -> Hypothesis:
                       evidence=[Evidence(comp, "code", f.get("title", ""), 0.6)])
 
 
+def _project(session) -> str:
+    return (session.targets[0] if getattr(session, "targets", None) else session.objective)[:40]
+
+
+def _persist_findings(session, findings, store) -> dict:
+    """Persist findings to memory so a future session on the same target remembers them. The memory
+    store refuses secrets; we store title/status/severity/component only, never raw evidence."""
+    project, stored = _project(session), 0
+    for h in findings:
+        r = store.add(f"{h.title} [{h.status}/{h.severity}] at {h.affected_component or '?'}",
+                      mtype="episodic", project=project, source="assessment",
+                      importance=0.7 if h.status in ("CONFIRMED", "LIKELY") else 0.4)
+        stored += 1 if r.get("ok") else 0
+    return {"project": project, "stored": stored}
+
+
 def run_assessment(session, generate, *, config=None, executor=None, verify_fn=None,
-                   max_rounds=8) -> dict:
-    """Drive one autonomous authorized assessment. Returns {record, findings, report, telemetry}."""
+                   max_rounds=8, store=None) -> dict:
+    """Drive one autonomous authorized assessment. Returns {record, findings, report, telemetry}.
+    If `store` (a memory.MemoryStore) is given, prior knowledge of the target is retrieved up front
+    and this assessment's findings are persisted for next time."""
     from mcp_layer import permissions as perm
     from mcp_layer import session as sess_mod
     from mcp_layer import session_policy
@@ -39,6 +57,12 @@ def run_assessment(session, generate, *, config=None, executor=None, verify_fn=N
     tel = Telemetry(getattr(session, "id", "session"))
     pipe = DiscoveryPipeline(session, telemetry=tel)
     approver = session_policy.approver_for(session, cfg)          # autonomous: no per-call prompt
+
+    prior = []
+    if store is not None:
+        prior = [m["text"] for m in store.search(session.objective, project=_project(session), k=5)]
+        if prior:
+            tel.record("prior_knowledge", count=len(prior))
 
     record = sess_mod.run_session(session.objective, generate, approver=approver, config=cfg,
                                   executor=executor, verify_fn=verify_fn, max_rounds=max_rounds,
@@ -52,8 +76,10 @@ def run_assessment(session, generate, *, config=None, executor=None, verify_fn=N
             pipe.add_finding(_hyp_from_finding(f))
 
     report = pipe.report()
+    memory = _persist_findings(session, pipe.findings, store) if store is not None else None
     return {"record": record, "findings": pipe.findings, "confirmed": len(pipe.confirmed()),
-            "report": report, "telemetry": tel.chain(), "escalated": record.get("escalated")}
+            "report": report, "telemetry": tel.chain(), "escalated": record.get("escalated"),
+            "prior_knowledge": prior, "memory": memory}
 
 
 def main() -> int:
