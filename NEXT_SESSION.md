@@ -100,6 +100,19 @@ items is a statistical tie. Decision: a material, consistent deterministic edge 
 moves Phase 12. `--judge` adds the optimistic self-judge (2× generations) if you want the biased
 number for contrast — not required. Fits one model in VRAM at a time; free the first model's HF cache
 (Cell 3 pattern) before loading the second if disk is tight.
+
+### Cell 8 — research-discipline benchmark (Security Benchmark v5)
+Measures the vuln-research discipline (hypothesis-not-confirmed, validate-before-exploit, overclaim/
+severity resistance, info-gain tool selection, injection-in-evidence resistance, exploitability/taint
+reasoning). Deterministic (unbiased) is the headline.
+```bash
+!python evaluation/run_secv5.py --model moonlight
+!python evaluation/run_secv5.py --model qwen
+!python evaluation/run_secv5.py --compare moonlight qwen25-coder-14b
+```
+Read the `--compare` per-discipline table + VERDICT. This complements v4 (general capability): v5 tells
+you which model reasons like a disciplined researcher (doesn't overclaim, validates before exploiting,
+resists injection in evidence) — directly relevant to the Phase-12 pick for a security agent.
 The comparison JSON is committable (it's small and it's the actual finding). To keep the raw runs,
 download `evaluation/results/` from the Kaggle output panel before the session ends (Kaggle wipes
 local storage on exit).
