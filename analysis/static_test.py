@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
 from analysis.static import (scan_secrets, scan_dangerous_apis, taint_analysis,     # noqa: E402
-                             analyze_python)
+                             analyze_python, scan_config, audit_dependencies)
 
 fails = []
 
@@ -87,6 +87,27 @@ def main() -> int:
     check("each carries a next_test and a code-evidence source",
           all(h.next_test and h.evidence and h.evidence[0].kind == "code" for h in hyps))
     check("affected component points at file:line", any(":" in h.affected_component for h in hyps))
+
+    print("\n7. insecure configuration detection")
+    c = scan_config("DEBUG = True\nAccess-Control-Allow-Origin: *\nssl_verify = False\n"
+                    "# bind 0.0.0.0 in a comment should not flag\nPermitRootLogin yes")
+    issues = {x["issue"] for x in c}
+    check("flags debug_enabled", "debug_enabled" in issues)
+    check("flags cors_wildcard", "cors_wildcard" in issues)
+    check("flags tls_verify_off", "tls_verify_off" in issues)
+    check("flags ssh_root_login", "ssh_root_login" in issues)
+    check("a commented bind-all does NOT flag", not any(x["line"] == 4 for x in c), str(c))
+
+    print("\n8. dependency audit (pinning discipline)")
+    py = audit_dependencies("requests==2.31.0\nflask>=2.0\nurllib3\n# a comment\n-r other.txt")
+    loose_names = {x["name"] for x in py["loose"]}
+    check("pinned requests is not loose", not any(x["name"] == "requests" for x in py["loose"]))
+    check("flask>=2.0 is loose", "flask" in loose_names)
+    check("bare urllib3 is loose/unpinned", "urllib3" in loose_names)
+    npm = audit_dependencies('{"dependencies":{"lodash":"^4.17.0","left-pad":"1.3.0"}}', "npm")
+    check("npm ^range is loose", any(x["name"] == "lodash" for x in npm["loose"]))
+    check("npm exact pin is not loose", any(x["name"] == "left-pad" for x in npm["pinned"]))
+    check("malformed package.json does not crash", "error" in audit_dependencies("{bad", "npm"))
 
     print("\n" + "=" * 74)
     if fails:

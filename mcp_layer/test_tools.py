@@ -100,6 +100,18 @@ def main() -> int:
           sdef.get("read_only") is True and sdef.get("side_effects") == "none"
           and sdef.get("verification_method"))
 
+    cp = os.path.join(td, "app.conf")
+    open(cp, "w", encoding="utf-8").write("DEBUG = True\nAccess-Control-Allow-Origin: *\n")
+    rc = dispatch({"tool": "config_scan", "arguments": {"path": cp}}, cfg_src)
+    check("config_scan flags insecure settings", rc["ok"] and len(rc.get("issues", [])) >= 2)
+    rp = os.path.join(td, "requirements.txt")
+    open(rp, "w", encoding="utf-8").write("requests==2.31.0\nflask>=2.0\nurllib3\n")
+    rd = dispatch({"tool": "dependency_audit", "arguments": {"path": rp}}, cfg_src)
+    check("dependency_audit flags loose/unpinned deps", rd["ok"] and len(rd.get("loose", [])) >= 2)
+    check("config_scan + dependency_audit are path-confined",
+          not dispatch({"tool": "config_scan", "arguments": {"path": os.path.join(HERE, "README.md")}},
+                       cfg_src)["ok"])
+
     print("\n3. permission unit checks")
     ok, _ = perm.path_allowed(os.path.join(HERE, "rag"), [HERE])
     check("path_allowed: in-scope subdir allowed", ok)

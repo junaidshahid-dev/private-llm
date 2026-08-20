@@ -254,6 +254,74 @@ def taint_analysis(code: str) -> list[dict]:
     return findings
 
 
+# ---- 4. insecure configuration ---------------------------------------------------------------
+_CONFIG = [
+    (r"(?i)\bdebug\s*[:=]\s*true\b", "debug_enabled", "HIGH",
+     "debug mode exposes internals and can allow code execution", "misconfiguration"),
+    (r"(?i)access-control-allow-origin\s*[:=]\s*\*", "cors_wildcard", "HIGH",
+     "any origin is allowed to read responses (CORS)", "misconfiguration"),
+    (r"(?i)\bssl[_-]?verify\s*[:=]\s*(?:false|0|no|off)\b", "tls_verify_off", "HIGH",
+     "TLS certificate verification is disabled", "crypto_misuse"),
+    (r"(?i)allowed_hosts\s*[:=].*[\*]", "wildcard_allowed_hosts", "MEDIUM",
+     "wildcard host allowlist accepts any Host header", "misconfiguration"),
+    (r"(?i)\b(?:permitrootlogin|permit_root_login)\s+yes\b", "ssh_root_login", "HIGH",
+     "SSH permits direct root login", "misconfiguration"),
+    (r"(?i)\bpasswordauthentication\s+yes\b", "ssh_password_auth", "LOW",
+     "SSH password authentication is enabled (prefer keys)", "misconfiguration"),
+    (r"\b0\.0\.0\.0\b", "bind_all_interfaces", "LOW",
+     "service binds all interfaces (wider exposure)", "misconfiguration"),
+    (r"(?i)\bverify\s*=\s*none\b", "verify_none", "HIGH",
+     "verification disabled", "crypto_misuse"),
+]
+
+
+def scan_config(text: str) -> list[dict]:
+    """Insecure configuration patterns (DEBUG on, CORS *, TLS verify off, root login, bind-all)."""
+    out = []
+    for i, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.lstrip()
+        if line.startswith("#") or line.startswith(";"):
+            continue
+        for pat, name, sev, why, vclass in _CONFIG:
+            if re.search(pat, raw):
+                out.append({"line": i, "issue": name, "severity": sev, "why": why,
+                            "vuln_class": vclass, "snippet": raw.strip()[:120]})
+    return out
+
+
+# ---- 5. dependency audit ---------------------------------------------------------------------
+def audit_dependencies(text: str, ecosystem: str = "python") -> dict:
+    """Parse a manifest and flag UNPINNED / loose version specs (a supply-chain / reproducibility
+    risk). No network: reports pinning discipline, not known-CVE status."""
+    loose, pinned = [], []
+    if ecosystem == "npm":
+        import json as _json
+        try:
+            data = _json.loads(text or "{}")
+        except ValueError:
+            return {"ecosystem": "npm", "error": "package.json did not parse", "loose": [], "pinned": []}
+        deps = {}
+        for k in ("dependencies", "devDependencies", "peerDependencies"):
+            deps.update(data.get(k) or {})
+        for name, spec in deps.items():
+            s = str(spec)
+            (pinned if re.fullmatch(r"\d+\.\d+\.\d+", s) else loose).append({"name": name, "spec": s})
+    else:                                            # python requirements.txt style
+        for raw in (text or "").splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if not line or line.startswith("-"):
+                continue
+            m = re.match(r"^([A-Za-z0-9_.\-]+)\s*(.*)$", line)
+            if not m:
+                continue
+            name, spec = m.group(1), m.group(2).strip()
+            (pinned if re.match(r"^==\s*\d", spec) else loose).append({"name": name, "spec": spec or "(any)"})
+    return {"ecosystem": ecosystem, "total": len(loose) + len(pinned), "pinned": pinned,
+            "loose": loose,
+            "note": "loose/unpinned specs are a supply-chain + reproducibility risk (a build can pull "
+                    "a different, possibly malicious version); pin to exact versions and use a lockfile"}
+
+
 # ---- orchestrator: static findings as research HYPOTHESES ------------------------------------
 _SEV_IMPACT = {"CRITICAL": 0.9, "HIGH": 0.75, "MEDIUM": 0.5, "LOW": 0.3}
 

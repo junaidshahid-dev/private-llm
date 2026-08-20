@@ -56,6 +56,20 @@ def schema() -> list[dict]:
          "capabilities": ["source_analysis", "taint_analysis", "secret_detection", "dangerous_api"],
          "verification_method": "findings cite file:line and are hypotheses; each requires a "
                                 "validating test before it may be called confirmed"},
+        {"name": "config_scan",
+         "description": "Read-only scan of a config file for insecure settings (DEBUG on, CORS *, "
+                        "TLS verify off, wildcard hosts, SSH root login, bind-all).",
+         "arguments": {"path": "config file path inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["config_analysis"],
+         "verification_method": "cites file:line; a setting is a lead to confirm in context"},
+        {"name": "dependency_audit",
+         "description": "Read-only audit of a dependency manifest (requirements.txt / package.json): "
+                        "flags UNPINNED/loose version specs (supply-chain + reproducibility risk).",
+         "arguments": {"path": "requirements.txt or package.json inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["dependency_analysis", "supply_chain"],
+         "verification_method": "reports pinning discipline; not a known-CVE lookup (no network)"},
     ]
 
 
@@ -163,6 +177,53 @@ def _source_scan(config, args):
                           "component": h.affected_component, "title": h.title} for h in ranked]}
 
 
+def _read_allowed(config, path):
+    ok, detail = perm.check_fs_read(config, path)
+    if not ok:
+        return None, {"ok": False, "error": detail}
+    if not os.path.isfile(detail):
+        return None, {"ok": False, "error": f"not a file: {detail}"}
+    try:
+        with open(detail, "r", encoding="utf-8", errors="replace") as f:
+            return (detail, f.read(SOURCE_MAX)), None
+    except OSError as e:
+        return None, {"ok": False, "error": f"read failed: {e}"}
+
+
+def _config_scan(config, args):
+    got, err = _read_allowed(config, args.get("path", ""))
+    if err:
+        return err
+    detail, text = got
+    from analysis.static import scan_config
+    issues = scan_config(text)
+    lines = [f"config scan of {os.path.basename(detail)} — {len(issues)} issue(s):"]
+    for i in issues:
+        lines.append(f"  L{i['line']} [{i['severity']}] {i['issue']} — {i['why']}")
+    if not issues:
+        lines.append("  no insecure-configuration patterns found.")
+    return {"ok": True, "result": "\n".join(lines), "issues": issues}
+
+
+def _dependency_audit(config, args):
+    got, err = _read_allowed(config, args.get("path", ""))
+    if err:
+        return err
+    detail, text = got
+    from analysis.static import audit_dependencies
+    eco = "npm" if os.path.basename(detail).lower() == "package.json" else "python"
+    r = audit_dependencies(text, eco)
+    if r.get("error"):
+        return {"ok": False, "error": r["error"]}
+    lines = [f"dependency audit of {os.path.basename(detail)} ({eco}) — {len(r['loose'])}/"
+             f"{r['total']} loose/unpinned:"]
+    for d in r["loose"][:50]:
+        lines.append(f"  {d['name']} {d['spec']}  (unpinned — pin to an exact version)")
+    if not r["loose"]:
+        lines.append("  all dependencies are pinned to exact versions.")
+    return {"ok": True, "result": "\n".join(lines), "loose": r["loose"], "pinned": r["pinned"]}
+
+
 DISPATCH = {
     "fs_list": _fs_list,
     "fs_read": _fs_read,
@@ -171,6 +232,8 @@ DISPATCH = {
     "git_log": lambda c, a: _git(
         c, a, lambda a: ["log", "--oneline", "-n", str(min(max(int(a.get("n", 10)), 1), 50))]),
     "source_scan": _source_scan,
+    "config_scan": _config_scan,
+    "dependency_audit": _dependency_audit,
 }
 
 
