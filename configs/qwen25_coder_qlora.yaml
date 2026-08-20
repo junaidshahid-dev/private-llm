@@ -1,0 +1,73 @@
+# Qwen2.5-Coder-14B-Instruct QLoRA — the working base, tuned for a FREE 16GB T4 (Kaggle / Colab).
+#
+# Chosen over the frozen Moonlight baseline after the held-out benchmark decided it: sec-v4 0.831 vs
+# 0.787, equal web-bench/injection resistance (both 1.000), and ~3x faster. This is the base the
+# security fine-tune specialises. Every value is chosen for a constraint; the comments say which.
+
+seed: 20260813
+
+model:
+  # DENSE Qwen2 architecture (14.77B params), Apache-2.0, standard 4-bit — no MoE, no custom
+  # tokenizer, no trust_remote_code. Loaded via the model lock (serving/model_spec), not named here
+  # by train.py, so the one source of truth is MODEL_SPEC.qwen25-coder-14b.lock.json.
+  name: Qwen/Qwen2.5-Coder-14B-Instruct
+  trust_remote_code: false
+  max_seq_len: 1024                # every training example is < 200 tokens; 1024 leaves ample T4 room
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  # fp16 NOT bf16: T4 is Turing (compute 7.5), no bfloat16. On an Ampere GPU switch to bfloat16.
+  bnb_4bit_compute_dtype: float16
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  task_type: CAUSAL_LM
+  # Qwen2 is a STANDARD dense attention model (not Moonlight's Multi-head Latent Attention): the
+  # attention linears are the canonical q_proj / k_proj / v_proj / o_proj. Attention-only, per the
+  # project's finding that it beats attention+MLP unless it underfits — revisit by adding
+  # [gate_proj, up_proj, down_proj] only if the eval shows the adapter underfitting.
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+training:
+  output_dir: checkpoints/qwen-coder-qlora-v1
+  # 2 epochs, not 1: the corpus is now broad (449 examples across math / instructions / factuality /
+  # defensive + offensive security), so the catastrophic-forgetting failure seen at 3 epochs on the
+  # OLD narrow 315-example set does not apply here, and the security specialisation wants more than a
+  # single ~25-step pass. Watch eval_loss — load_best_model_at_end keeps the best checkpoint, so an
+  # over-trained tail is discarded rather than shipped. Drop to 1 if the eval regresses.
+  num_train_epochs: 2
+  per_device_train_batch_size: 1   # 16GB. Not negotiable on a T4.
+  gradient_accumulation_steps: 16  # effective batch 16
+  learning_rate: 2.0e-4            # standard LoRA LR
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 0.3
+  gradient_checkpointing: true
+  optim: paged_adamw_8bit          # paged: survives the VRAM spikes that kill T4 runs
+  fp16: true
+  bf16: false
+  save_steps: 25                   # ~50 optimiser steps total at 2 epochs; checkpoint often
+  save_total_limit: 3
+  eval_steps: 25
+  logging_steps: 5
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  resume_from_checkpoint: auto
+
+data:
+  train_file: data/train/train.jsonl
+  eval_file: data/validation/validation.jsonl
+  use_chat_template: true          # prepare_dataset applies the tokenizer's own template
+
+eval:
+  benchmark_file: evaluation/benchmark.jsonl
+  max_new_tokens: 512
+  temperature: 0.0                 # deterministic for comparability. NEVER benchmark at temp>0.
+  top_p: 1.0

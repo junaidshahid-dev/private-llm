@@ -47,6 +47,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
                               line_buffering=True)
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, HERE)                               # so `serving` imports when run as a script
 D = lambda *p: os.path.join(HERE, "data", *p)          # noqa: E731
 SEED = 20260813
 SPLIT = (0.90, 0.05, 0.05)                              # train / validation / test
@@ -151,7 +152,8 @@ def main() -> int:
     if not args.no_tokenizer:
         try:
             from transformers import AutoTokenizer
-            lock = json.load(open(os.path.join(HERE, "MODEL_SPEC.lock.json"), encoding="utf-8"))
+            from serving.model_spec import load_lock       # tokenizer follows the working base lock
+            lock = load_lock()
             tok = AutoTokenizer.from_pretrained(lock["model"], revision=lock["revision"],
                                                 trust_remote_code=True)
             print(f"tokenizer      {lock['model']} @ {lock['revision'][:8]}")

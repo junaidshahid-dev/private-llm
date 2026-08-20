@@ -1,7 +1,8 @@
 """model_spec.py — the ONE place the stack decides which model to load.
 
     from serving.model_spec import load_lock
-    lock = load_lock()          # default: MODEL_SPEC.lock.json (the frozen Moonlight baseline)
+    lock = load_lock()          # default: the working base (Qwen2.5-Coder-14B)
+    lock = load_lock("moonlight")   # the frozen Moonlight baseline, still reachable by alias
 
 The architecture is deliberately model-agnostic: RAG, MCP, verification, the lab, and the benchmarks
 never name a model — they call load_lock(). To A/B a STRONGER base model against the frozen Moonlight
@@ -23,7 +24,11 @@ import json
 import os
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_LOCK = "MODEL_SPEC.lock.json"
+# The WORKING base is Qwen2.5-Coder-14B, chosen after the held-out benchmark decided it (sec-v4
+# 0.831 vs Moonlight 0.787, equal injection resistance, ~3x faster). The Moonlight baseline lock
+# (MODEL_SPEC.lock.json) is kept frozen and reachable as `moonlight`/`baseline` for reproducibility;
+# it is not rewritten. Override per-run with MODEL_LOCK=... or --model.
+DEFAULT_LOCK = "MODEL_SPEC.qwen25-coder-14b.lock.json"
 
 # Friendly names -> lock files, so `--model qwen` works. Unknown names fall back to
 # MODEL_SPEC.<name>.lock.json, and an explicit *.lock.json path is used as-is.

@@ -187,7 +187,10 @@ def latest_checkpoint(out_dir: str) -> str | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/moonlight_qlora.yaml")
+    ap.add_argument("--config", default="configs/qwen25_coder_qlora.yaml")
+    ap.add_argument("--model", default=None,
+                    help="model lock/alias (default: the working base via model_spec). "
+                         "e.g. --model moonlight --config configs/moonlight_qlora.yaml")
     ap.add_argument("--pilot", action="store_true", help="10 steps + gates, then stop")
     ap.add_argument("--steps", type=int, default=10)
     ap.add_argument("--experiment", default=None, help="models/<name>/ ; auto-numbered if unset")
@@ -202,7 +205,8 @@ def main() -> int:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
     cfg = yaml.safe_load(open(os.path.join(HERE, args.config), encoding="utf-8"))
-    lock = json.load(open(os.path.join(HERE, "MODEL_SPEC.lock.json"), encoding="utf-8"))
+    from serving.model_spec import load_lock          # one source of truth for which model to load
+    lock = load_lock(args.model)                       # default: the working base (Qwen); --model overrides
     seed = cfg.get("seed", 20260813)
     random.seed(seed); torch.manual_seed(seed)
 
@@ -227,7 +231,10 @@ def main() -> int:
     # is a far more expensive way to find out. Run scripts/check_quantizable.py for the numbers.
     import transformers as _tf
     _major = int(_tf.__version__.split(".")[0])
-    if _major >= 5:
+    # This ceiling is a MoE-quantisation problem specific to Moonlight/DeepSeek-V3 (5.0 stores its
+    # experts as 3D nn.Parameter, which bitsandbytes cannot reach). Dense models like Qwen2 quantise
+    # fine on any version, so only refuse 5.x for the model it actually affects.
+    if _major >= 5 and lock.get("model_type") == "deepseek_v3":
         print(f"\nFAIL: transformers {_tf.__version__}. MoE experts are 3D parameters from 5.0")
         print("      onward and bitsandbytes cannot quantise them: ~30GB of weights instead of")
         print("      ~8.5GB. Install transformers==4.57.6 (the newest 4.x) and re-run.")
@@ -293,10 +300,11 @@ def main() -> int:
         bnb_4bit_use_double_quant=q["bnb_4bit_use_double_quant"],
         bnb_4bit_compute_dtype=getattr(torch, q["bnb_4bit_compute_dtype"]))
     torch.cuda.reset_peak_memory_stats()
-    print("\nloading 4-bit weights (~8.5GB, first run also downloads ~32GB)...")
+    print(f"\nloading {lock['model']} in 4-bit (first run also downloads the bf16 weights)...")
     t0 = time.time()
-    # NATIVE deepseek_v3 — no trust_remote_code. The repo's modeling file is stale; see
-    # MODEL_SPEC.lock.json. The tokenizer above still needs it (custom TikTokenTokenizer).
+    # Load NATIVELY (no trust_remote_code for the model). Moonlight uses native deepseek_v3 support
+    # (its shipped modeling file is stale); Qwen2 is dense and native too. Its tokenizer needs no
+    # remote code either; the tokenizer call keeps trust_remote_code=True which is a harmless no-op.
     model = AutoModelForCausalLM.from_pretrained(
         lock["model"], revision=lock["revision"], quantization_config=bnb, device_map={"": 0})
     print(f"  loaded in {time.time()-t0:.0f}s")

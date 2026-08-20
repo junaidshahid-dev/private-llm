@@ -7,6 +7,14 @@ hosted API at inference.
 **Status:** all four gates passed on a free Kaggle T4. The adapter trains, checkpoints, reloads
 cold in a fresh process, and generates.
 
+**Working base: Qwen2.5-Coder-14B-Instruct.** A held-out benchmark decided it over the original
+Moonlight baseline — security capability 0.831 vs 0.787 (sec-v4, 68 items), equal web-bench and
+prompt-injection resistance (both 1.000), and ~3× faster. Everything below about Moonlight remains
+the **frozen baseline** (still loadable as `--model moonlight`); the security fine-tune now
+specialises Qwen. The model is chosen in one place — `serving/model_spec.py` — via a lock file, so
+the whole stack (training, serving, UI, benchmarks) follows `load_lock()` and nothing else hardcodes
+a model name. See [`configs/qwen25_coder_qlora.yaml`](configs/qwen25_coder_qlora.yaml).
+
 ---
 
 ## What was selected, and why

@@ -1,13 +1,13 @@
 {
-  "built_at": "2026-08-20T21:02:23+00:00",
-  "dataset_version": "124b395fd137c5f9",
+  "built_at": "2026-08-20T21:26:53+00:00",
+  "dataset_version": "c89a41a190ffbc0d",
   "seed": 20260813,
   "counts": {
-    "train": 400,
-    "validation": 22,
-    "test": 23
+    "train": 415,
+    "validation": 23,
+    "test": 24
   },
-  "raw_examples": 449,
+  "raw_examples": 466,
   "dropped": {
     "dropped: prompt too short": 1,
     "dropped: answer echoes prompt": 1,
@@ -17,16 +17,17 @@
   "tokenizer_used": true,
   "max_tokens": 1024,
   "token_stats": {
-    "mean": 64.05168539325842,
-    "max": 190,
+    "mean": 69.96320346320347,
+    "max": 209,
     "min": 15
   },
   "sources": {
-    "security_train.jsonl": 25,
+    "instructions_train.jsonl": 16,
     "factuality.jsonl": 262,
     "seed.jsonl": 64,
-    "math_train.jsonl": 16,
     "offensive_train.jsonl": 62,
-    "instructions_train.jsonl": 16
+    "discipline_boost.jsonl": 17,
+    "security_train.jsonl": 25,
+    "math_train.jsonl": 16
   }
 }
