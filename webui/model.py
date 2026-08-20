@@ -48,6 +48,39 @@ def use_stub() -> dict:
     return status()
 
 
+def use_remote(url: str, secret: str | None = None) -> dict:
+    """Use a REMOTE model server (serving/gpu_server.py behind a tunnel) as the generate() backend.
+    The UI, agent, tools, verifier and kill switch all still run locally; only the model inference is
+    remote. This is how you run everything on your own machine but put the GPU on Kaggle."""
+    import json
+    import urllib.request
+    base = (url or "").rstrip("/")
+    hdr = {"Content-Type": "application/json"}
+    if secret:
+        hdr["X-Auth"] = secret
+    # Probe /health so a bad URL/secret fails fast and honestly at startup, not on the first message.
+    try:
+        req = urllib.request.Request(base + "/health", headers=hdr)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            h = json.loads(r.read())
+    except Exception as e:                                # noqa: BLE001
+        with _LOCK:
+            _STATE.update(status="error", generate=None,
+                          reason=f"cannot reach remote model at {base}: {type(e).__name__}: {e}")
+        return status()
+
+    def gen(messages, max_new=768):
+        body = json.dumps({"messages": messages, "max_new": max_new}).encode()
+        req = urllib.request.Request(base + "/generate", data=body, headers=hdr, method="POST")
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.loads(r.read()).get("text", "")
+
+    with _LOCK:
+        _STATE.update(generate=gen, status="remote", model=(h.get("model") or "remote model"),
+                      device=f"remote GPU ({base})", reason="")
+    return status()
+
+
 def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
     """Load the real model via the existing lock seam if a CUDA GPU is present; else report why not.
     If `adapter` names a trained LoRA dir (e.g. models/experiment-001/final), it is applied on top of

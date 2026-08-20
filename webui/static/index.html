@@ -424,7 +424,7 @@ function tab(t){ document.querySelectorAll(".tab").forEach(x=>x.classList.toggle
 async function refresh(){
   try{ const s=await (await fetch("/api/status")).json();
     const ms=s.model.status; const p=$("#mstatus"); p.textContent=ms;
-    p.className="pill "+(ms==="ready"?"good":ms==="stub"?"warn":"bad");
+    p.className="pill "+((ms==="ready"||ms==="remote")?"good":ms==="stub"?"warn":"bad");
     $("#stubBanner").style.display = ms==="stub"?"block":"none";
     $("#mname").textContent=s.model.model||"—"; $("#mdev").textContent=s.device.name||"—";
     $("#tcount").textContent=s.tools;

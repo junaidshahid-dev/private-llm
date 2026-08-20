@@ -25,7 +25,8 @@ extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_s
          os.path.join(HERE, "evaluation", "tool_bench.py"),
          os.path.join(HERE, "web", "benchmark.py"),
          os.path.join(HERE, "memory", "benchmark.py"),
-         os.path.join(HERE, "tests", "api", "test_webui.py")]  # local-UI backend + E2E (test_ prefix)
+         os.path.join(HERE, "tests", "api", "test_webui.py"),   # local-UI backend + E2E (test_ prefix)
+         os.path.join(HERE, "tests", "api", "test_remote.py")]  # remote-GPU backend (test_ prefix)
 
 
 def discover() -> list[str]:

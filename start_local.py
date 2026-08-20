@@ -27,10 +27,19 @@ def main() -> int:
     ap.add_argument("--adapter", default=None,
                     help="trained LoRA adapter dir to serve on top of the base "
                          "(e.g. models/experiment-001/final) — the fine-tuned security model")
+    ap.add_argument("--remote", default=None,
+                    help="URL of a remote GPU model server (serving/gpu_server.py behind a tunnel) — "
+                         "run the whole UI locally with inference on a Kaggle GPU")
+    ap.add_argument("--remote-secret", default=None, help="shared secret for the remote server (X-Auth)")
     args = ap.parse_args()
 
     from webui import model
-    st = model.use_stub() if args.stub else model.load(args.model, adapter=args.adapter)
+    if args.remote:
+        st = model.use_remote(args.remote, args.remote_secret)
+    elif args.stub:
+        st = model.use_stub()
+    else:
+        st = model.load(args.model, adapter=args.adapter)
 
     from mcp_layer import tools as t, security as s
     from web import tools as w
@@ -52,10 +61,10 @@ def main() -> int:
     line("MCP/Tools:", ntools)
     line("Verifier:", "READY")
     line("Trust bnd:", "READY")
-    if st["status"] not in ("ready", "stub"):
+    if st["status"] not in ("ready", "stub", "remote"):
         print("\n  NOTE:", st["reason"])
         print("  The UI will still start; chat needs a model. Re-run with --stub for a demo,")
-        print("  or run on a GPU host to load the real model.")
+        print("  point --remote at a GPU server, or run on a GPU host to load the real model.")
     print("\n  Open:  http://%s:%d\n" % (args.host if args.host != "0.0.0.0" else "127.0.0.1", args.port))
     print("=" * 52)
 
