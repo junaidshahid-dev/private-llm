@@ -101,12 +101,16 @@ def authorize(session: AuthorizedSession, proposal: dict, config=None) -> tuple[
         target = str(args.get("target") or args.get("url") or "")
         if config is None:
             config = perm.load_config()
-        ok, why = secmod.target_authorized(target, (config.get("security_tools") or {}).get(
-            "authorized_targets"))
-        if not ok:
-            return False, f"target not in the operator's authorized_targets: {why}"
-        if session.targets and not _in_scope(target, session.targets):
-            return False, f"target {target!r} is outside this session's declared scope {session.targets}"
+        reg = (config.get("security_tools") or {}).get("authorized_targets")
+        # A target is authorized if the OPERATOR authorized it EITHER way (a mix of both sources):
+        #   (1) declared for THIS session (the operator can extend scope to any target they are
+        #       responsible for, via authorize_target with operator_ack), OR
+        #   (2) present in the standing authorized_targets registry.
+        # The registry check is retained; the session scope is an additional operator authorization.
+        # Everything the operator has NOT authorized either way is denied by default.
+        if not (_in_scope(target, session.targets) or secmod.target_authorized(target, reg)[0]):
+            return False, (f"target {target!r} is not authorized: neither in this session's scope "
+                           f"{session.targets} nor in the operator's authorized_targets registry")
     return True, "authorized by session policy (in scope — no per-call prompt)"
 
 
@@ -136,15 +140,26 @@ def start_session(objective: str, targets: list, capability_profile: str = DEFAU
                 f"choose from {list(PROFILES)}"}
     if capability_profile != "read_only" and not targets:
         return {"ok": False, "error": "declare the target(s) for this assessment (the scope)"}
-    if config is None:
-        config = perm.load_config()
-    reg = (config.get("security_tools") or {}).get("authorized_targets")
-    unauthorized = [t for t in (targets or []) if not secmod.target_authorized(t, reg)[0]]
-    if unauthorized:
-        return {"ok": False, "error": "these targets are not in your authorized_targets (add them "
-                f"first — only your own authorized targets): {unauthorized}"}
-    sess = AuthorizedSession(objective=objective, targets=list(targets or []),
+    # The operator (operator_ack=True) is the authority for their own scope: the targets they declare
+    # here are authorized for this session. Standing registry targets remain authorized too (the mix).
+    # Deny-by-default still applies to everything the operator has NOT authorized either way.
+    sess = AuthorizedSession(objective=objective, targets=[str(t).strip() for t in (targets or []) if str(t).strip()],
                              capability_profile=capability_profile, time_limit_s=int(time_limit_s))
     secmod.audit("session_start", "-", ",".join(sess.targets) or "(local)",
                  f"objective={objective!r} profile={capability_profile} ttl={time_limit_s}s id={sess.id}")
     return {"ok": True, "session": sess}
+
+
+def authorize_target(session: AuthorizedSession, target: str, operator_ack: bool = False) -> dict:
+    """Operator-only: extend the session's authorized scope to another target mid-assessment ('move to
+    any target'). Requires operator_ack is the boolean True — the model can never widen the scope."""
+    if operator_ack is not True:
+        return {"ok": False, "error": "extending the session scope requires an explicit operator "
+                "acknowledgement (the boolean True). The model cannot authorize a new target."}
+    t = str(target or "").strip()
+    if not t:
+        return {"ok": False, "error": "empty target"}
+    if t not in session.targets:
+        session.targets.append(t)
+        secmod.audit("session_scope_added", "-", t, f"session {session.id}")
+    return {"ok": True, "targets": list(session.targets)}

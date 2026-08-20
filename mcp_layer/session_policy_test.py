@@ -20,7 +20,7 @@ sys.path.insert(0, HERE)
 os.environ["KILL_SWITCH_FILE"] = os.path.join(tempfile.mkdtemp(), ".KILL_SWITCH")
 
 from mcp_layer.session_policy import (AuthorizedSession, PROFILES, authorize, approver_for,   # noqa: E402
-                                      start_session, _tool_index)
+                                      authorize_target, start_session, _tool_index)
 from mcp_layer import killswitch                                            # noqa: E402
 from mcp_layer.session import run_session                                   # noqa: E402
 
@@ -82,9 +82,9 @@ def main() -> int:
     check("operator start (ack=True) succeeds", r["ok"] and r["session"].objective.startswith("assess"))
     sess = r["session"]
 
-    print("\n2. scope + profile guards at session start")
-    check("a target NOT in authorized_targets is refused",
-          start_session("x", ["8.8.8.8"], operator_ack=True, config=CFG)["ok"] is False)
+    print("\n2. start guards (the operator is the authority for their own scope)")
+    check("the operator can authorize ANY target they declare (operator is the authority)",
+          start_session("x", ["203.0.113.200"], operator_ack=True, config=CFG)["ok"] is True)
     check("an unknown capability profile is refused",
           start_session("x", ["lab.local"], "godmode", operator_ack=True, config=CFG)["ok"] is False)
     check("a non-read_only session must declare targets",
@@ -99,16 +99,28 @@ def main() -> int:
     check("web research (web_fetch) auto-approved (non-target, SSRF-gated)",
           approve({"tool": "web_fetch", "arguments": {"url": "https://example.com"}}) is True)
 
-    print("\n4. hard gates the model cannot bypass")
-    check("active tool on a target NOT in authorized_targets is DENIED",
+    print("\n4. authorization gates (mix of session scope + standing registry)")
+    check("active tool on a target the operator NEVER authorized is DENIED",
           approve({"tool": "nmap_scan", "arguments": {"target": "8.8.8.8"}}) is False)
-    check("active tool on an authorized target OUTSIDE this session's scope is DENIED",
-          approve({"tool": "nmap_scan", "arguments": {"target": "192.168.56.10"}}) is False)
+    check("active tool on a REGISTRY target is allowed (option 2 of the mix)",
+          approve({"tool": "nmap_scan", "arguments": {"target": "192.168.56.10"}}) is True)
     ro = start_session("read-only review", ["lab.local"], "read_only", operator_ack=True, config=CFG)["session"]
     check("read_only profile DENIES an active tool even on an authorized target",
           approver_for(ro, CFG)({"tool": "nmap_scan", "arguments": {"target": "lab.local"}}) is False)
     check("read_only profile still allows a local read-only tool",
           approver_for(ro, CFG)({"tool": "source_scan", "arguments": {"path": "x.py"}}) is True)
+
+    print("\n4b. operator can MOVE TO ANY TARGET mid-session (authorize_target); the model cannot")
+    mv = start_session("assess", ["lab.local"], "recon", operator_ack=True, config=CFG)["session"]
+    amv = approver_for(mv, CFG)
+    check("a brand-new target is denied before it is authorized",
+          amv({"tool": "nmap_scan", "arguments": {"target": "203.0.113.9"}}) is False)
+    check("the MODEL cannot widen scope (operator_ack not True)",
+          authorize_target(mv, "203.0.113.9", operator_ack=False)["ok"] is False)
+    check("the OPERATOR authorizes the new target (operator_ack True)",
+          authorize_target(mv, "203.0.113.9", operator_ack=True)["ok"] is True)
+    check("after operator authorization, the new target is in scope",
+          amv({"tool": "nmap_scan", "arguments": {"target": "203.0.113.9"}}) is True)
 
     print("\n5. kill switch overrides the session; expiry ends it")
     killswitch.engage("drill")
