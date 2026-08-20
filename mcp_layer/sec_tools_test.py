@@ -130,6 +130,19 @@ def main() -> int:
           and ti["result"]["subject_cn"] == "lab.local" and ti["result"]["tls_version"] == "TLSv1.3")
     check("tls_inspect flags an expired cert", ti["result"]["expired"] is True)
 
+    print("\n5d. web_headers (fetch via gated http_get, then analyze)")
+    fake_get = lambda c, u, cf=False: {"ok": True, "result": {
+        "status": 200, "final_url": "http://web-target/", "content_type": "text/html",
+        "headers": {"Server": "Apache/2.4.25", "Set-Cookie": "sid=abc"},
+        "body": '<form action="/login" method="post"><input name="user"></form>'}}
+    wh = sec.web_headers(cfg, "http://10.10.10.5/", confirmed=True, _http_get=fake_get)
+    check("web_headers reports security findings + attack surface",
+          wh["ok"] and wh["result"]["security_findings"] and wh["result"]["attack_surface"]["forms"])
+    check("web_headers surfaces missing headers + server disclosure",
+          any(f["issue"] == "server_version_disclosure" for f in wh["result"]["security_findings"]))
+    check("web_headers denies an unauthorized URL (via the http_get gate)",
+          not sec.web_headers(cfg, "http://8.8.8.8/", confirmed=True)["ok"])
+
     print("\n6. dispatch routes the new tools")
     check("dispatch runs hash_file",
           sec.dispatch({"tool": "hash_file", "arguments": {"path": hp}}, cfg)["ok"])

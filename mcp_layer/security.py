@@ -41,7 +41,11 @@ HTTP_MAX_BODY = 2_000_000            # 2 MB cap on a fetched body
 HTTP_MAX_REDIRECTS = 5
 HTTP_UA = "private-llm/http_get (authorized security assessment)"
 _SAFE_HEADERS = {"content-type", "content-length", "server", "location", "date",
-                 "set-cookie", "www-authenticate", "x-powered-by", "strict-transport-security"}
+                 "set-cookie", "www-authenticate", "x-powered-by", "strict-transport-security",
+                 # security-relevant response headers (non-sensitive) so web_headers can assess them
+                 "content-security-policy", "x-frame-options", "x-content-type-options",
+                 "referrer-policy", "permissions-policy", "access-control-allow-origin",
+                 "access-control-allow-credentials", "cache-control"}
 SCAN_TIMEOUT = 300
 
 
@@ -246,6 +250,13 @@ def schema() -> list[dict]:
          "read_only": True, "requires_authorization": True, "side_effects": "network:read",
          "required_binary": None, "capabilities": ["recon", "tls", "network", "web"],
          "verification_method": "certificate fields are OBSERVED; expired/self-signed is a lead"},
+        {"name": "web_headers", "description": "Fetch an AUTHORIZED URL (via the gated http_get) and "
+         "analyze web security: missing security headers, cookie flags, tech disclosure, CORS, body "
+         "info-disclosure, and the form/parameter attack surface. Requires confirmation.",
+         "arguments": {"url": "an authorized http(s) URL"},
+         "read_only": True, "requires_authorization": True, "side_effects": "network:read",
+         "required_binary": None, "capabilities": ["web", "http_inspection", "config_analysis"],
+         "verification_method": "OBSERVED response properties; a missing header is a lead to confirm"},
     ]
 
 
@@ -581,6 +592,23 @@ def http_get(config, url, confirmed=False, _fetch=None):
     return {"ok": False, "error": f"too many redirects (> {HTTP_MAX_REDIRECTS})", "redirects": chain}
 
 
+def web_headers(config, url, confirmed=False, _http_get=None):
+    """Read-only web security analysis of an AUTHORIZED URL: fetches via the gated http_get, then
+    reports missing security headers, insecure cookie flags, tech disclosure, CORS, body info-
+    disclosure, and the form/parameter attack surface. Injectable for tests."""
+    r = (_http_get or http_get)(config, url, confirmed)
+    if not r.get("ok"):
+        return r
+    res = r.get("result", {})
+    from analysis.http_analyze import analyze_response, attack_surface
+    findings = analyze_response(res.get("status"), res.get("headers", {}), res.get("body", ""),
+                                res.get("final_url", url))
+    surface = attack_surface(res.get("body", ""), res.get("final_url", url))
+    return {"ok": True, "result": {"url": res.get("final_url", url), "status": res.get("status"),
+                                   "security_findings": findings, "attack_surface": surface},
+            "note": "OBSERVED response security properties; a missing header is a lead to confirm"}
+
+
 def binary_info(config, path, confirmed=False):
     """Pure, read-only: identify the file format and parse its header (ELF/PE/Mach-O). Always works."""
     off = _need_group(config)
@@ -738,6 +766,7 @@ DISPATCH = {
     "nm_symbols": lambda c, a, cf: nm_symbols(c, a.get("path", ""), cf),
     "dns_lookup": lambda c, a, cf: dns_lookup(c, a.get("target", ""), cf),
     "tls_inspect": lambda c, a, cf: tls_inspect(c, a.get("target", ""), cf),
+    "web_headers": lambda c, a, cf: web_headers(c, a.get("url", "") or a.get("target", ""), cf),
 }
 
 
