@@ -112,6 +112,24 @@ def main() -> int:
           re_r["ok"] or "not installed" in re_r.get("error", ""), str(re_r)[:80])
     check("binary_info denied when the group is disabled", not sec.binary_info(disabled, elf)["ok"])
 
+    print("\n5c. dns_lookup + tls_inspect (gated recon, injectable for testing)")
+    dl = sec.dns_lookup(cfg, "10.10.10.5", confirmed=True,
+                        _resolver=lambda h: {"host": h, "addresses": ["10.10.10.5"], "reverse": {}})
+    check("dns_lookup returns records for an authorized target", dl["ok"]
+          and dl["result"]["addresses"] == ["10.10.10.5"])
+    check("dns_lookup needs confirmation", sec.dns_lookup(cfg, "10.10.10.5")["ok"] is False)
+    check("dns_lookup denies an unauthorized target",
+          sec.dns_lookup(cfg, "8.8.8.8", confirmed=True)["ok"] is False)
+    fake_cert = {"subject": ((("commonName", "lab.local"),),),
+                 "issuer": ((("commonName", "Lab CA"),),),
+                 "notAfter": "Jan  1 00:00:00 2020 GMT",
+                 "subjectAltName": (("DNS", "lab.local"),)}
+    ti = sec.tls_inspect(cfg, "10.10.10.5", confirmed=True,
+                         _fetch=lambda h, p: (fake_cert, "TLSv1.3", ("TLS_AES_256_GCM_SHA384", "", 256)))
+    check("tls_inspect summarizes the certificate", ti["ok"]
+          and ti["result"]["subject_cn"] == "lab.local" and ti["result"]["tls_version"] == "TLSv1.3")
+    check("tls_inspect flags an expired cert", ti["result"]["expired"] is True)
+
     print("\n6. dispatch routes the new tools")
     check("dispatch runs hash_file",
           sec.dispatch({"tool": "hash_file", "arguments": {"path": hp}}, cfg)["ok"])

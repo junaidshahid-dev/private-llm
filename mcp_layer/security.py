@@ -234,6 +234,18 @@ def schema() -> list[dict]:
          "read_only": True, "side_effects": "none", "required_binary": "nm",
          "capabilities": ["reverse_engineering"],
          "verification_method": "OBSERVED symbol table"},
+        {"name": "dns_lookup", "description": "Resolve an AUTHORIZED target's hostname (forward + "
+         "reverse DNS). Requires confirmation.",
+         "arguments": {"target": "an authorized host/domain"},
+         "read_only": True, "requires_authorization": True, "side_effects": "network:read",
+         "required_binary": None, "capabilities": ["recon", "dns", "network"],
+         "verification_method": "DNS records are OBSERVED; a resolver can be stale/poisoned"},
+        {"name": "tls_inspect", "description": "Inspect an AUTHORIZED host's TLS certificate + "
+         "protocol/cipher (host:port, default 443). Requires confirmation.",
+         "arguments": {"target": "an authorized host or host:port"},
+         "read_only": True, "requires_authorization": True, "side_effects": "network:read",
+         "required_binary": None, "capabilities": ["recon", "tls", "network", "web"],
+         "verification_method": "certificate fields are OBSERVED; expired/self-signed is a lead"},
     ]
 
 
@@ -624,6 +636,88 @@ def nm_symbols(config, path, confirmed=False):
                         "defined symbols (OBSERVED); nm")
 
 
+def _host_port(target: str, default_port: int) -> tuple[str, int]:
+    host = _host_of(target)
+    if ":" in host and not host.count(":") > 1:      # host:port (not a bare IPv6)
+        h, _, p = host.partition(":")
+        try:
+            return h, int(p)
+        except ValueError:
+            return host, default_port
+    return host, default_port
+
+
+def _default_dns(host: str) -> dict:
+    import socket
+    addrs = sorted({ai[4][0] for ai in socket.getaddrinfo(host, None)})
+    reverse = {}
+    for a in addrs:
+        try:
+            reverse[a] = socket.gethostbyaddr(a)[0]
+        except OSError:
+            pass
+    return {"host": host, "addresses": addrs, "reverse": reverse}
+
+
+def dns_lookup(config, target, confirmed=False, _resolver=None):
+    """Resolve an AUTHORIZED target's hostname (forward + reverse). Gated + confirmation like recon."""
+    proceed, resp = _gate_target(config, "dns_lookup", target, confirmed)
+    if not proceed:
+        return resp
+    host = _host_of(target)
+    try:
+        rec = (_resolver or _default_dns)(host)
+    except Exception as e:                            # noqa: BLE001
+        return {"ok": False, "error": f"dns lookup failed: {type(e).__name__}: {e}"}
+    audit("executed", "dns_lookup", host, "")
+    return {"ok": True, "result": rec,
+            "note": "DNS records are OBSERVED; a resolver can be stale/poisoned — corroborate"}
+
+
+def _summarize_cert(cert: dict, version, cipher, host: str) -> dict:
+    import time as _t
+    from datetime import datetime, timezone
+    subj = {k: v for t in cert.get("subject", ()) for k, v in t}
+    iss = {k: v for t in cert.get("issuer", ()) for k, v in t}
+    sans = [v for typ, v in cert.get("subjectAltName", ()) if typ == "DNS"]
+    expired = None
+    na = cert.get("notAfter")
+    if na:
+        try:
+            dt = datetime.strptime(na, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+            expired = dt.timestamp() < _t.time()
+        except ValueError:
+            pass
+    return {"host": host, "tls_version": version, "cipher": (cipher or [None])[0],
+            "subject_cn": subj.get("commonName"), "issuer_cn": iss.get("commonName"),
+            "not_before": cert.get("notBefore"), "not_after": na, "expired": expired,
+            "self_signed": bool(subj) and subj == iss, "sans": sans[:20]}
+
+
+def _default_tls(host: str, port: int):
+    import socket
+    import ssl
+    ctx = ssl.create_default_context()
+    with socket.create_connection((host, port), timeout=10) as sock:
+        with ctx.wrap_socket(sock, server_hostname=host) as ss:
+            return ss.getpeercert() or {}, ss.version(), ss.cipher()
+
+
+def tls_inspect(config, target, confirmed=False, _fetch=None):
+    """Inspect an AUTHORIZED host's TLS certificate + protocol/cipher (host:port, default 443)."""
+    proceed, resp = _gate_target(config, "tls_inspect", target, confirmed)
+    if not proceed:
+        return resp
+    host, port = _host_port(target, 443)
+    try:
+        cert, ver, cipher = (_fetch or _default_tls)(host, port)
+    except Exception as e:                            # noqa: BLE001
+        return {"ok": False, "error": f"tls connect/inspect failed: {type(e).__name__}: {e}"}
+    audit("executed", "tls_inspect", f"{host}:{port}", "")
+    return {"ok": True, "result": _summarize_cert(cert, ver, cipher, host),
+            "note": "certificate fields are OBSERVED; a weak/expired/self-signed cert is a lead"}
+
+
 DISPATCH = {
     "url_info": lambda c, a, cf: url_info(c, a.get("url", ""), cf),
     "qr_decode": lambda c, a, cf: qr_decode(c, a.get("path", ""), cf),
@@ -642,6 +736,8 @@ DISPATCH = {
     "readelf_headers": lambda c, a, cf: readelf_headers(c, a.get("path", ""), cf),
     "objdump_disasm": lambda c, a, cf: objdump_disasm(c, a.get("path", ""), cf),
     "nm_symbols": lambda c, a, cf: nm_symbols(c, a.get("path", ""), cf),
+    "dns_lookup": lambda c, a, cf: dns_lookup(c, a.get("target", ""), cf),
+    "tls_inspect": lambda c, a, cf: tls_inspect(c, a.get("target", ""), cf),
 }
 
 
