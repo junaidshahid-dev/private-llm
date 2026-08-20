@@ -77,6 +77,29 @@ def main() -> int:
     r = dispatch({"tool": "git_log", "arguments": {"repo": HERE, "n": 3}}, cfg)
     check("git_log returns commits", r["ok"] and r.get("result", "").count("\n") >= 1)
 
+    print("\n2b. source_scan — read-only static analysis, gated + rich schema")
+    import tempfile
+    td = tempfile.mkdtemp()
+    vp = os.path.join(td, "vuln.py")
+    open(vp, "w", encoding="utf-8").write(
+        'import os\ncmd = request.args.get("c")\nos.system(cmd)\nAPI_KEY = "AKIAIOSFODNN7EXAMPLE"\n')
+    cfg_src = {**cfg, "filesystem_read": {"enabled": True, "allowed_paths": [td]}}
+    r = dispatch({"tool": "source_scan", "arguments": {"path": vp}}, cfg_src)
+    check("source_scan runs and finds candidates", r["ok"] and len(r.get("findings", [])) >= 2,
+          str(len(r.get("findings", []))))
+    check("finds the command_injection taint + a hardcoded secret",
+          any(f["vuln_class"] == "command_injection" for f in r["findings"])
+          and any(f["vuln_class"] == "hardcoded_secret" for f in r["findings"]))
+    check("static findings are HYPOTHESES, never CONFIRMED",
+          all(f["status"] != "CONFIRMED" for f in r["findings"]))
+    check("source_scan is path-confined like fs_read",
+          not dispatch({"tool": "source_scan", "arguments": {"path": os.path.join(HERE, "README.md")}},
+                       cfg_src)["ok"])
+    sdef = next(t for t in schema() if t["name"] == "source_scan")
+    check("source_scan declares the rich schema (read_only / verification_method)",
+          sdef.get("read_only") is True and sdef.get("side_effects") == "none"
+          and sdef.get("verification_method"))
+
     print("\n3. permission unit checks")
     ok, _ = perm.path_allowed(os.path.join(HERE, "rag"), [HERE])
     check("path_allowed: in-scope subdir allowed", ok)

@@ -36,6 +36,18 @@ def schema() -> list[dict]:
          "arguments": {"repo": "allowed repo", "n": "how many (default 10, max 50)"}},
         {"name": "git_diff", "description": "Unstaged git diff of a repo.",
          "arguments": {"repo": "allowed repo"}},
+        # rich schema (spec #15): read_only / side_effects / required_binary / verification_method so
+        # the agent and the session-authorization policy understand a tool without rewriting the agent.
+        {"name": "source_scan",
+         "description": "Read-only STATIC ANALYSIS of a source file inside an allowed path: Python "
+                        "input->sink taint, dangerous APIs (eval/exec/os.system/shell=True/pickle/"
+                        "yaml.load/...), and hardcoded secrets. Returns candidate findings as "
+                        "HYPOTHESES — a static hit is a lead, NOT a confirmed vulnerability.",
+         "arguments": {"path": "source file path inside an allowed root"},
+         "read_only": True, "side_effects": "none", "required_binary": None,
+         "capabilities": ["source_analysis", "taint_analysis", "secret_detection", "dangerous_api"],
+         "verification_method": "findings cite file:line and are hypotheses; each requires a "
+                                "validating test before it may be called confirmed"},
     ]
 
 
@@ -88,6 +100,61 @@ def _git(config, args, git_args_fn):
     return _run_git(detail, git_args_fn(args))
 
 
+SOURCE_MAX = 200_000
+
+
+def _source_scan(config, args):
+    """Read-only static analysis of one allowed source file. Emits candidate findings as ranked
+    HYPOTHESES (never 'confirmed') — consistent with the research-findings discipline."""
+    ok, detail = perm.check_fs_read(config, args.get("path", ""))
+    if not ok:
+        return {"ok": False, "error": detail}
+    if not os.path.isfile(detail):
+        return {"ok": False, "error": f"not a file: {detail}"}
+    try:
+        with open(detail, "r", encoding="utf-8", errors="replace") as f:
+            code = f.read(SOURCE_MAX)
+    except OSError as e:
+        return {"ok": False, "error": f"read failed: {e}"}
+
+    from analysis.static import analyze_python, scan_dangerous_apis, scan_secrets
+    from research.findings import Evidence, Hypothesis, rank
+    base = os.path.basename(detail)
+    ext = os.path.splitext(detail)[1].lower()
+    if ext in (".py", ".pyw"):
+        hyps = analyze_python(code, base)
+    else:                                            # non-python: dangerous APIs + secrets only
+        lang = "javascript" if ext in (".js", ".jsx", ".ts", ".tsx", ".mjs") else "python"
+        hyps = []
+        for d in scan_dangerous_apis(code, lang):
+            loc = f"{base}:{d['line']}"
+            hyps.append(Hypothesis(title=f"dangerous API: {d['name']}", vuln_class=d["vuln_class"],
+                                   affected_component=loc, observation=d["snippet"],
+                                   why_it_matters=d["why"], severity=d["severity"],
+                                   next_test="determine whether any argument is attacker-controlled",
+                                   evidence=[Evidence(loc, "code", d["snippet"], 0.6)]))
+        for s in scan_secrets(code):
+            loc = f"{base}:{s['line']}"
+            hyps.append(Hypothesis(title=f"hardcoded secret ({s['kind']})",
+                                   vuln_class="hardcoded_secret", affected_component=loc,
+                                   observation=s["match"], why_it_matters=s["why"], severity="HIGH",
+                                   next_test="confirm the credential is live and rotate it",
+                                   evidence=[Evidence(loc, "code", s["kind"], 0.8)]))
+
+    ranked = rank(hyps)
+    lines = [f"static analysis of {base} — {len(ranked)} candidate finding(s) (HYPOTHESES; a static "
+             "hit is a lead, NOT a confirmed vulnerability):"]
+    for h in ranked:
+        lines.append(f"  [{h.status}] {h.severity} {h.vuln_class} @ {h.affected_component} — {h.title}")
+        lines.append(f"      why: {h.why_it_matters}")
+        lines.append(f"      next test: {h.next_test}")
+    if not ranked:
+        lines.append("  no candidate findings from the static analyzers.")
+    return {"ok": True, "result": "\n".join(lines),
+            "findings": [{"status": h.status, "severity": h.severity, "vuln_class": h.vuln_class,
+                          "component": h.affected_component, "title": h.title} for h in ranked]}
+
+
 DISPATCH = {
     "fs_list": _fs_list,
     "fs_read": _fs_read,
@@ -95,6 +162,7 @@ DISPATCH = {
     "git_diff": lambda c, a: _git(c, a, lambda a: ["diff"]),
     "git_log": lambda c, a: _git(
         c, a, lambda a: ["log", "--oneline", "-n", str(min(max(int(a.get("n", 10)), 1), 50))]),
+    "source_scan": _source_scan,
 }
 
 
