@@ -22,6 +22,7 @@ extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_s
          os.path.join(HERE, "evaluation", "development", "security_v4", "build_secv4.py"),
          os.path.join(HERE, "evaluation", "development", "security_v5", "build_secv5.py"),
          os.path.join(HERE, "evaluation", "pipeline_bench.py"),
+         os.path.join(HERE, "evaluation", "tool_bench.py"),
          os.path.join(HERE, "web", "benchmark.py"),
          os.path.join(HERE, "memory", "benchmark.py")]
 
