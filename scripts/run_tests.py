@@ -20,6 +20,7 @@ SKIP = (".venv", "site-packages", "__pycache__", "scratch", os.sep + "node_modul
 # test modules (self-verifying, exit 0 on pass) — *_test.py plus the benchmark builders' self-tests
 extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_secv3.py"),
          os.path.join(HERE, "evaluation", "development", "security_v4", "build_secv4.py"),
+         os.path.join(HERE, "evaluation", "development", "security_v5", "build_secv5.py"),
          os.path.join(HERE, "web", "benchmark.py"),
          os.path.join(HERE, "memory", "benchmark.py")]
 

@@ -187,12 +187,51 @@ def dryrun_secv4():
     check("v4 compare() runs head-to-head", "HEAD-TO-HEAD" in cmp and "OVERALL" in cmp)
 
 
+def dryrun_secv5():
+    print("\n" + "=" * 74)
+    print("DRY-RUN: run_secv5.py (40-item research-discipline benchmark, deterministic-primary + compare)")
+    print("=" * 74)
+    sys.path.insert(0, os.path.join(HERE, "evaluation", "development", "security_v5"))
+    from evaluation.run_secv5 import build_report, compare, _mean
+    from build_secv5 import items_as_dicts, grade_deterministic
+    from verification.verify import verify
+
+    items = items_as_dicts()
+    check("v5 loads the discipline set", len(items) >= 35, f"{len(items)} items")
+
+    def make_run(answerer, name):
+        rows = [{"id": it["id"], "domain": it["domain"], "category": it["category"],
+                 "det_score": grade_deterministic(it, answerer(it)), "judge_score": None,
+                 "judge_detail": "", "verify_verdict": verify(answerer(it), hits=None).verdict,
+                 "output": answerer(it)} for it in items]
+        data = {"name": name, "model": f"stub/{name}", "model_revision": "x", "items": len(items),
+                "judge": False, "cost": {"mean_latency_s": 0.0, "peak_vram_gb": 0.0}, "results": rows}
+        d = os.path.join(OUT, name)
+        os.makedirs(d, exist_ok=True)
+        json.dump(data, open(os.path.join(d, "results.json"), "w", encoding="utf-8"), indent=2)
+        return data
+
+    good = lambda it: " ".join(k for grp in it["anchors"]["show"] for k in grp[:1])
+    weak = lambda _it: "not sure, seems fine."
+    import evaluation.run_secv5 as v5
+    v5.RESULTS = OUT
+    g = make_run(good, "secv5_stubgood")
+    make_run(weak, "secv5_stubweak")
+    check("v5 per-item loop + grade ran over every item", len(g["results"]) == len(items))
+    check("good answerer scores materially higher than weak",
+          (_mean([r["det_score"] for r in g["results"]]) or 0) > 0.6)
+    check("v5 build_report produced a report", "Deterministic overall" in build_report(g))
+    check("v5 compare() runs head-to-head",
+          "HEAD-TO-HEAD" in compare("stubgood", "stubweak") and "OVERALL" in compare("stubgood", "stubweak"))
+
+
 def main() -> int:
     print("=" * 74)
-    print("RUN-SCRIPT DRY-RUN — secv3 + secv4 + webbench orchestration on CPU (stub model)")
+    print("RUN-SCRIPT DRY-RUN — secv3 + secv4 + secv5 + webbench orchestration on CPU (stub model)")
     print("=" * 74)
     dryrun_secv3()
     dryrun_secv4()
+    dryrun_secv5()
     dryrun_webbench()
     print("\n" + "=" * 74)
     if fails:
