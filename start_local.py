@@ -23,11 +23,14 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--stub", action="store_true",
                     help="use a clearly-labelled echo model (no GPU) to exercise the UI")
-    ap.add_argument("--model", default=None, help="model alias/lock (default: frozen baseline)")
+    ap.add_argument("--model", default=None, help="model alias/lock (default: the working base)")
+    ap.add_argument("--adapter", default=None,
+                    help="trained LoRA adapter dir to serve on top of the base "
+                         "(e.g. models/experiment-001/final) — the fine-tuned security model")
     args = ap.parse_args()
 
     from webui import model
-    st = model.use_stub() if args.stub else model.load(args.model)
+    st = model.use_stub() if args.stub else model.load(args.model, adapter=args.adapter)
 
     from mcp_layer import tools as t, security as s
     from web import tools as w

@@ -9,8 +9,10 @@ real model (the status says "stub").
 """
 from __future__ import annotations
 
+import os
 import threading
 
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STATE = {"generate": None, "status": "not_loaded", "model": None, "device": None, "reason": ""}
 _LOCK = threading.Lock()
 
@@ -46,8 +48,10 @@ def use_stub() -> dict:
     return status()
 
 
-def load(model_alias: str | None = None) -> dict:
-    """Load the real model via the existing lock seam if a CUDA GPU is present; else report why not."""
+def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
+    """Load the real model via the existing lock seam if a CUDA GPU is present; else report why not.
+    If `adapter` names a trained LoRA dir (e.g. models/experiment-001/final), it is applied on top of
+    the base — this is how the fine-tuned security model is served in the UI."""
     with _LOCK:
         if _STATE["generate"] is not None and _STATE["status"] in ("ready", "stub"):
             return status()
@@ -78,6 +82,15 @@ def load(model_alias: str | None = None) -> dict:
                                      bnb_4bit_compute_dtype=torch.float16)
             model = AutoModelForCausalLM.from_pretrained(
                 lock["model"], revision=lock["revision"], quantization_config=bnb, device_map={"": 0})
+            label = lock["model"]
+            if adapter:
+                from peft import PeftModel
+                ad = adapter if os.path.isabs(adapter) else os.path.join(_REPO, adapter)
+                if not os.path.isdir(ad):
+                    _STATE.update(status="error", reason=f"adapter dir not found: {ad}")
+                    return status()
+                model = PeftModel.from_pretrained(model, ad)
+                label = f"{lock['model']} + {os.path.basename(os.path.dirname(ad.rstrip('/\\\\')))}"
             model.eval()
             tok = AutoTokenizer.from_pretrained(lock["model"], revision=lock["revision"],
                                                 trust_remote_code=True)
@@ -91,7 +104,7 @@ def load(model_alias: str | None = None) -> dict:
                     out = model.generate(ids, max_new_tokens=max_new, do_sample=False,
                                          pad_token_id=tok.pad_token_id)
                 return tok.decode(out[0][ids.shape[-1]:], skip_special_tokens=True).strip()
-            _STATE.update(generate=gen, status="ready", model=lock["model"],
+            _STATE.update(generate=gen, status="ready", model=label,
                           device=torch.cuda.get_device_name(0), reason="")
         except Exception as e:                        # noqa: BLE001
             _STATE.update(status="error", reason=f"{type(e).__name__}: {e}")
