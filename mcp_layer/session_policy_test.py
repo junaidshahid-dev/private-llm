@@ -25,7 +25,7 @@ from mcp_layer import killswitch                                            # no
 from mcp_layer.session import run_session                                   # noqa: E402
 
 fails = []
-_SE_CLASSES = {"none", "network:read", "network:write", "local:write"}
+_SE_CLASSES = {"none", "network:read", "network:probe", "network:write", "local:write"}
 
 CFG = {
     "filesystem_read": {"enabled": True, "allowed_paths": [HERE]},
@@ -134,9 +134,29 @@ def main() -> int:
     check("an expired session denies everything",
           authorize(expired, {"tool": "fs_read", "arguments": {"path": "x"}}, CFG)[0] is False)
 
-    print("\n6. profiles: only 'full' permits a would-be destructive class")
+    print("\n6. profiles: cumulative tiers, only 'full' permits exploitation")
     check("'recon' does not permit network:write", "network:write" not in PROFILES["recon"])
     check("'full' permits network:write (explicit operator opt-in)", "network:write" in PROFILES["full"])
+    check("'recon' does NOT permit active vuln probing (network:probe)",
+          "network:probe" not in PROFILES["recon"])
+    check("'validation' permits active vuln probing but NOT exploitation",
+          "network:probe" in PROFILES["validation"] and "network:write" not in PROFILES["validation"])
+    check("'full' permits both probing and exploitation",
+          {"network:probe", "network:write"} <= PROFILES["full"])
+    # a validation session may run an active vuln scanner (nuclei) on an in-scope target, but not an
+    # exploitation tool (sqlmap); a full session may run both.
+    val = start_session("validate the lab web app", ["lab.local"], "validation",
+                        operator_ack=True, config=CFG)["session"]
+    aval = approver_for(val, CFG)
+    check("validation profile ALLOWS an active vuln scan (nuclei) on an in-scope target",
+          aval({"tool": "nuclei_scan", "arguments": {"target": "lab.local"}}) is True)
+    check("validation profile DENIES exploitation (sqlmap) — needs 'full'",
+          aval({"tool": "sqlmap_test", "arguments": {"target": "http://lab.local/?id=1"}}) is False)
+    fulls = start_session("exploit the authorized lab", ["lab.local"], "full",
+                          operator_ack=True, config=CFG)["session"]
+    check("full profile ALLOWS exploitation (sqlmap) on an in-scope target",
+          approver_for(fulls, CFG)({"tool": "sqlmap_test",
+                                    "arguments": {"target": "http://lab.local/?id=1"}}) is True)
 
     print("\n7. END-TO-END: run_session driven by the session policy — autonomous, no human prompt")
     ex, calls = recording_executor()

@@ -29,14 +29,20 @@ from mcp_layer import permissions as perm
 from mcp_layer import security as secmod
 
 # capability profile -> the tool side-effect classes it permits to run autonomously.
-#   "none"          local, no target traffic
-#   "network:read"  sends traffic to the target but does not modify it (recon/read)
-#   "network:write" / "local:write"  would MODIFY a target/host (destructive)
+#   "none"           local, no target traffic
+#   "network:read"   sends traffic to the target but does not modify it (passive recon/read)
+#   "network:probe"  actively PROBES the target for vulnerabilities with crafted requests, but does
+#                    NOT modify/exfiltrate it (nuclei/nikto-class validation) — beyond passive recon,
+#                    below exploitation; only under 'validation' or 'full'.
+#   "network:write" / "local:write"  would MODIFY/exfiltrate a target/host (exploitation, e.g. sqlmap
+#                    dumping a database) — only under an explicit 'full' profile.
+# The tiers are cumulative: recon <= validation <= full. Deny-by-default still applies to targets, the
+# kill switch overrides every profile, and the model can neither start a session nor widen the profile.
 PROFILES = {
     "read_only": {"none"},
     "recon": {"none", "network:read"},
-    "validation": {"none", "network:read"},
-    "full": {"none", "network:read", "network:write", "local:write"},
+    "validation": {"none", "network:read", "network:probe"},
+    "full": {"none", "network:read", "network:probe", "network:write", "local:write"},
 }
 DEFAULT_PROFILE = "recon"
 

@@ -147,6 +147,13 @@ SCENARIOS = {
     "ffuf_discover": lambda: (not _s("ffuf_discover", {"target": "http://8.8.8.8/"})["ok"],
                               "denies unauthorized"),
     "http_get": lambda: (not _s("http_get", {"url": "http://8.8.8.8/"})["ok"], "denies unauthorized URL"),
+    # ---- validation (nuclei/nikto) + exploitation (sqlmap): deny-by-default is the guarantee -----
+    "nuclei_scan": lambda: (not _s("nuclei_scan", {"target": "8.8.8.8"})["ok"], "denies unauthorized"),
+    "nikto_scan": lambda: (not _s("nikto_scan", {"target": "http://8.8.8.8/"})["ok"], "denies unauthorized"),
+    "sqlmap_test": lambda: (not _s("sqlmap_test", {"target": "http://8.8.8.8/?id=1"})["ok"],
+                            "denies unauthorized"),
+    "searchsploit": lambda: (_graceful(_s("searchsploit", {"query": "vsftpd 2.3.4"})),
+                             "offline exploit search or degrades"),
     "dns_lookup": _dns,
     "tls_inspect": _tls,
     "web_headers": _web_headers,

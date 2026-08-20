@@ -180,7 +180,7 @@ tests/api/test_webui.py    FastAPI TestClient API tests + the E2E (chat→propos
 
 ## Verification (what was actually tested)
 
-- **`tests/api/test_webui.py`** (in the regression gate): status is honest (34 tools, CUDA `False` on
+- **`tests/api/test_webui.py`** (in the regression gate): status is honest (38 tools, CUDA `False` on
   this host); chat with no model errors honestly; session start is operator-gated and profile-enforced;
   the **E2E** sends a chat, receives a real tool proposal, approves it from the "browser", and confirms
   the real `source_scan` ran through the real controller + trust boundary + verifier (telemetry

@@ -57,9 +57,9 @@ def main() -> int:
     print("\n1. API starts and reports honestly")
     st = client.get("/api/status").json()
     check("status endpoint responds", "model" in st and "tools" in st)
-    check("tool count is the real 34", st["tools"] == 34, str(st["tools"]))
+    check("tool count is the real 38", st["tools"] == 38, str(st["tools"]))
     check("reports CUDA honestly (False on this CPU host)", st["device"]["cuda"] is False)
-    check("tools endpoint lists tools", len(client.get("/api/tools").json()["tools"]) == 34)
+    check("tools endpoint lists tools", len(client.get("/api/tools").json()["tools"]) == 38)
     check("profiles endpoint lists real profiles",
           "recon" in client.get("/api/profiles").json()["profiles"])
 

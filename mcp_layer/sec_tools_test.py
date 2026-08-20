@@ -146,6 +146,32 @@ def main() -> int:
     check("web_headers denies an unauthorized URL (via the http_get gate)",
           not sec.web_headers(cfg, "http://8.8.8.8/", confirmed=True)["ok"])
 
+    print("\n5e. validation + exploitation tools — authorization/confirmation gates + degradation")
+    # nuclei / nikto (network:probe) and sqlmap (network:write): the gates hold without the binaries.
+    check("nuclei denies an unauthorized target",
+          not sec.nuclei_scan(cfg, "8.8.8.8", confirmed=True)["ok"])
+    check("nuclei on an authorized-but-unconfirmed target => needs_confirmation",
+          sec.nuclei_scan(cfg, "10.10.10.5", confirmed=False).get("needs_confirmation"))
+    check("nuclei authorized+confirmed runs OR degrades cleanly when nuclei is absent",
+          (lambda r: r["ok"] or "not installed" in r.get("error", ""))(
+              sec.nuclei_scan(cfg, "10.10.10.5", confirmed=True)))
+    check("nikto denies an unauthorized URL",
+          not sec.nikto_scan(cfg, "http://evil.example/", confirmed=True)["ok"])
+    check("sqlmap denies an unauthorized URL",
+          not sec.sqlmap_test(cfg, "http://8.8.8.8/?id=1", confirmed=True)["ok"])
+    check("sqlmap authorized-but-unconfirmed => needs_confirmation",
+          sec.sqlmap_test(cfg, "http://10.10.10.5/?id=1", confirmed=False).get("needs_confirmation"))
+    check("sqlmap authorized+confirmed runs OR degrades cleanly when sqlmap is absent",
+          (lambda r: r["ok"] or "not installed" in r.get("error", ""))(
+              sec.sqlmap_test(cfg, "http://10.10.10.5/?id=1", confirmed=True)))
+    # searchsploit is OFFLINE (no target) — only group-gated; runs or degrades cleanly.
+    ss = sec.searchsploit(cfg, "vsftpd 2.3.4")
+    check("searchsploit runs OR degrades cleanly (offline, no target gate)",
+          ss["ok"] or "not installed" in ss.get("error", ""), str(ss)[:80])
+    check("searchsploit denied when the group is disabled",
+          not sec.searchsploit(disabled, "vsftpd")["ok"])
+    check("searchsploit rejects an empty query", not sec.searchsploit(cfg, "")["ok"])
+
     print("\n6. dispatch routes the new tools")
     check("dispatch runs hash_file",
           sec.dispatch({"tool": "hash_file", "arguments": {"path": hp}}, cfg)["ok"])
@@ -154,7 +180,7 @@ def main() -> int:
     names = {t["name"] for t in sec.schema()}
     check("schema advertises the new tools",
           {"hash_file", "strings_extract", "file_type", "masscan_scan", "ffuf_discover",
-           "adb_devices"} <= names)
+           "adb_devices", "nuclei_scan", "nikto_scan", "sqlmap_test", "searchsploit"} <= names)
 
     print("\n" + "=" * 74)
     if fails:

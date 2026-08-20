@@ -16,9 +16,15 @@ DENY BY DEFAULT. An empty authorized_targets means nothing runs — authorizatio
 deliberate act by you. THE MODEL CANNOT AUTHORIZE A TARGET: there is no tool to add to the list.
 The model proposes a scan; your config authorizes the target; you confirm the run.
 
-Recon and analysis, not exploitation. Active scanning (nmap) and read-only analysis (tshark on a
-capture, APK static listing, QR decode, URL parsing). No exploit execution here — that is a later
-level you add deliberately.
+Four tiers, each gated harder than the last (the profile check lives in session_policy):
+  * read-only analysis (tshark on a capture, APK static listing, QR decode, URL parsing, RE tools);
+  * passive recon (nmap/masscan/ffuf/dns/tls/http) — network:read;
+  * active VALIDATION (nuclei/nikto) — network:probe: crafted probes that detect vulnerabilities but
+    do NOT modify the target; only under a 'validation' or 'full' session;
+  * EXPLOITATION (sqlmap) — network:write: can extract/modify a target; only under a 'full' session.
+Exploit RESEARCH (searchsploit) is offline. Every active/exploitation tool still requires the target
+to be in the operator's authorized set AND a per-run confirmation — the model can neither authorize a
+target nor raise the profile. Deny by default; the kill switch overrides everything.
 """
 from __future__ import annotations
 
@@ -149,10 +155,12 @@ def schema() -> list[dict]:
     # Rich schema (spec #15): every tool declares read_only / side_effects / required_binary /
     # verification_method / capabilities so the agent AND the session-authorization policy can decide
     # what may run autonomously without rewriting the agent. side_effects is categorical:
-    #   "none"          local, no traffic to any target
-    #   "network:read"  sends traffic to the target but does NOT modify it (recon / read)
-    #   "network:write" / "local:write" would MODIFY a target/host (destructive) — needs the 'full'
-    #                   capability profile; none exist yet.
+    #   "none"           local, no traffic to any target
+    #   "network:read"   sends traffic to the target but does NOT modify it (recon / read)
+    #   "network:probe"  actively probes for vulnerabilities (crafted requests) but does NOT modify
+    #                    the target — needs the 'validation' or 'full' profile (nuclei/nikto)
+    #   "network:write" / "local:write" would MODIFY/exfiltrate a target/host (exploitation) — needs
+    #                    the 'full' capability profile (sqlmap)
     return [
         {"name": "url_info", "description": "Parse a URL/host into scheme/host/port/path "
          "(offline, no request).", "arguments": {"url": "a URL or host string"},
@@ -263,6 +271,41 @@ def schema() -> list[dict]:
          "read_only": True, "requires_authorization": True, "side_effects": "network:read",
          "required_binary": None, "capabilities": ["web", "http_inspection", "config_analysis"],
          "verification_method": "OBSERVED response properties; a missing header is a lead to confirm"},
+        # ---- authorized VALIDATION (active, non-destructive probing) — 'validation' or 'full' -----
+        {"name": "nuclei_scan", "description": "Active template-based vulnerability scan of an "
+         "AUTHORIZED web/host target (nuclei). Non-destructive probing; requires confirmation and a "
+         "'validation' or 'full' session.",
+         "arguments": {"target": "an authorized URL/host", "severity": "optional filter, e.g. "
+                       "'critical,high'"},
+         "read_only": False, "requires_authorization": True, "side_effects": "network:probe",
+         "required_binary": "nuclei", "capabilities": ["vulnerability_scan", "web", "validation"],
+         "verification_method": "a nuclei match is an OBSERVED signal from one template — confirm each "
+         "before reporting it as a real vulnerability"},
+        {"name": "nikto_scan", "description": "Active web-server misconfiguration/vulnerability scan "
+         "of an AUTHORIZED URL (nikto). Non-destructive probing; requires confirmation and a "
+         "'validation' or 'full' session.", "arguments": {"target": "an authorized http(s) URL/host"},
+         "read_only": False, "requires_authorization": True, "side_effects": "network:probe",
+         "required_binary": "nikto", "capabilities": ["vulnerability_scan", "web", "validation"],
+         "verification_method": "nikto items are OBSERVED leads (many are informational) — confirm "
+         "before reporting"},
+        # ---- authorized EXPLOITATION (can extract/modify a target) — 'full' profile ONLY ---------
+        {"name": "sqlmap_test", "description": "Test an AUTHORIZED URL for SQL injection and, if "
+         "present, demonstrate it (sqlmap, --batch, non-interactive). EXPLOITATION: can extract data "
+         "— requires confirmation and an explicit 'full' session.",
+         "arguments": {"target": "an authorized http(s) URL with an injectable parameter",
+                       "data": "optional POST body to test"},
+         "read_only": False, "requires_authorization": True, "side_effects": "network:write",
+         "required_binary": "sqlmap", "capabilities": ["exploitation", "sql_injection", "web"],
+         "verification_method": "a CONFIRMED injection is one sqlmap demonstrably exploits (extracts "
+         "version/data); otherwise it is a lead, not proof"},
+        # ---- exploit RESEARCH (offline, no target traffic) — any profile -------------------------
+        {"name": "searchsploit", "description": "Search the local Exploit-DB for known public "
+         "exploits matching a product/version/keyword (searchsploit, OFFLINE — no target traffic).",
+         "arguments": {"query": "product/version/keywords, e.g. 'vsftpd 2.3.4'"},
+         "read_only": True, "side_effects": "none", "required_binary": "searchsploit",
+         "capabilities": ["exploit_research", "vulnerability_research"],
+         "verification_method": "a hit names a CANDIDATE public exploit — a lead, not proof it works "
+         "on this target/version"},
     ]
 
 
@@ -757,6 +800,82 @@ def tls_inspect(config, target, confirmed=False, _fetch=None):
             "note": "certificate fields are OBSERVED; a weak/expired/self-signed cert is a lead"}
 
 
+# ---------------------------------------------------------------------------------------------
+# authorized VALIDATION + EXPLOITATION (the "find -> validate -> exploit" step).
+#
+# Gated exactly like recon — enabled + authorized target + confirmation — AND the session capability
+# profile must permit the tool's side-effect class: 'validation'/'full' for the non-destructive vuln
+# probes (nuclei/nikto, network:probe), 'full' only for exploitation (sqlmap, network:write). That
+# profile check lives in session_policy.authorize(); here we enforce the target/confirmation gate and
+# run the binary, degrading gracefully when it is not installed. searchsploit is OFFLINE (no target),
+# so it is only group-gated. These act ONLY against the operator's own authorized targets.
+# ---------------------------------------------------------------------------------------------
+def _authorized_run(config, tool, target, confirmed, binary, argv, note):
+    proceed, resp = _gate_target(config, tool, target, confirmed)
+    if not proceed:
+        return resp
+    if not shutil.which(binary):
+        audit("error", tool, target, f"{binary} not installed")
+        return {"ok": False, "error": f"{binary} is not installed (tool implemented + gated; "
+                f"live-tested where {binary} is available)"}
+    audit("executed", tool, target, " ".join(argv))
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=SCAN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"{binary} timed out after {SCAN_TIMEOUT}s"}
+    out = (r.stdout or "").strip()
+    # scanners often exit non-zero even on a clean run (findings/return conventions vary), so treat
+    # "produced output" as success too; still surface stderr as a diagnostic.
+    return {"ok": r.returncode == 0 or bool(out), "result": out[:12000],
+            "error": (r.stderr or "").strip()[:400] or None, "note": note}
+
+
+def nuclei_scan(config, target, severity=None, confirmed=False):
+    argv = ["nuclei", "-u", target, "-silent", "-jsonl"]
+    if severity:
+        argv += ["-severity", str(severity)]
+    return _authorized_run(config, "nuclei_scan", target, confirmed, "nuclei", argv,
+                           "nuclei matches are OBSERVED signals; confirm each before reporting")
+
+
+def nikto_scan(config, target, confirmed=False):
+    url = target if "://" in (target or "") else "http://" + (target or "")
+    argv = ["nikto", "-h", url, "-nointeractive", "-maxtime", "120"]
+    return _authorized_run(config, "nikto_scan", target, confirmed, "nikto", argv,
+                           "nikto items are OBSERVED leads (many informational); confirm before reporting")
+
+
+def sqlmap_test(config, target, data=None, confirmed=False):
+    argv = ["sqlmap", "-u", target, "--batch", "--level", "1", "--risk", "1",
+            "--flush-session", "--disable-coloring"]
+    if data:
+        argv += ["--data", str(data)]
+    return _authorized_run(config, "sqlmap_test", target, confirmed, "sqlmap", argv,
+                           "a CONFIRMED injection is one sqlmap demonstrably exploits; else it is a lead")
+
+
+def searchsploit(config, query, confirmed=False):
+    """Offline Exploit-DB search (no target traffic) — group-gated only."""
+    off = _need_group(config)
+    if off:
+        return off
+    q = (query or "").strip()
+    if not q:
+        return {"ok": False, "error": "empty query"}
+    if not shutil.which("searchsploit"):
+        return {"ok": False, "error": "searchsploit is not installed (part of exploitdb)"}
+    argv = ["searchsploit", *q.split()[:12]]
+    audit("executed", "searchsploit", "-", " ".join(argv))
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "searchsploit timed out"}
+    out = (r.stdout or "").strip()
+    return {"ok": r.returncode == 0 or bool(out), "result": out[:12000],
+            "error": (r.stderr or "").strip()[:400] or None,
+            "note": "candidate public exploits (offline Exploit-DB); a hit is a lead, not proof"}
+
+
 DISPATCH = {
     "url_info": lambda c, a, cf: url_info(c, a.get("url", ""), cf),
     "qr_decode": lambda c, a, cf: qr_decode(c, a.get("path", ""), cf),
@@ -779,6 +898,10 @@ DISPATCH = {
     "dns_lookup": lambda c, a, cf: dns_lookup(c, a.get("target", ""), cf),
     "tls_inspect": lambda c, a, cf: tls_inspect(c, a.get("target", ""), cf),
     "web_headers": lambda c, a, cf: web_headers(c, a.get("url", "") or a.get("target", ""), cf),
+    "nuclei_scan": lambda c, a, cf: nuclei_scan(c, a.get("target", ""), a.get("severity"), cf),
+    "nikto_scan": lambda c, a, cf: nikto_scan(c, a.get("target", ""), cf),
+    "sqlmap_test": lambda c, a, cf: sqlmap_test(c, a.get("target", ""), a.get("data"), cf),
+    "searchsploit": lambda c, a, cf: searchsploit(c, a.get("query", ""), cf),
 }
 
 
