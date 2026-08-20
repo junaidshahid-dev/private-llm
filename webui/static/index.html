@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Local LLM — Security Agent</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#0a0f1a; --panel:#0f1626; --panel2:#131c30; --line:#1e2b47; --line2:#28385c;
+    --text:#dce6f5; --muted:#8a9ac0; --faint:#5d6d92;
+    --accent:#5ee0c8; --accent-deep:#2b8f83; --warn:#e8b45e; --bad:#f0757a; --good:#7fdca0;
+    --radius:12px; --sans:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 var(--sans);overflow:hidden}
+  .app{display:grid;grid-template-columns:260px 1fr 360px;height:100vh}
+  .col{height:100vh;overflow-y:auto;border-right:1px solid var(--line)}
+  .col:last-child{border-right:none;border-left:1px solid var(--line)}
+  h1,h2,h3{margin:0}
+  .brand{padding:16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--faint);box-shadow:0 0 8px transparent}
+  .dot.on{background:var(--good);box-shadow:0 0 8px var(--good)}
+  .dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+  .dot.off{background:var(--bad)}
+  .brand b{font-size:15px;letter-spacing:.2px}
+  .sect{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .sect .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--faint);margin-bottom:8px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;color:var(--muted)}
+  .row b{color:var(--text);font-weight:600}
+  .pill{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line2);color:var(--muted)}
+  .pill.good{color:var(--good);border-color:#265} .pill.warn{color:var(--warn);border-color:#653}
+  .pill.bad{color:var(--bad);border-color:#622}
+  select,input,textarea,button{font-family:inherit;font-size:13px;color:var(--text);
+    background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:8px 10px}
+  select,input{width:100%}
+  button{cursor:pointer;background:var(--panel2)}
+  button:hover{border-color:var(--accent-deep)}
+  button.primary{background:linear-gradient(180deg,#1a6f66,#155e57);border-color:#1c7d73;color:#eafffb}
+  button.danger{background:#3a1417;border-color:#5b2126;color:#ffd7d9}
+  button.ok{background:#123322;border-color:#1d5638;color:#d7ffe6}
+  .stack>*{margin-top:8px}
+  /* chat */
+  .chat{display:flex;flex-direction:column;height:100vh}
+  .msgs{flex:1;overflow-y:auto;padding:20px 22px}
+  .msg{max-width:760px;margin:0 auto 18px}
+  .msg .who{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--faint);margin-bottom:5px}
+  .msg.user .bubble{background:var(--panel2);border:1px solid var(--line2)}
+  .bubble{padding:12px 14px;border-radius:var(--radius);background:var(--panel);border:1px solid var(--line);white-space:normal;overflow-wrap:anywhere}
+  .bubble pre{background:#08101e;border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto;font-family:var(--mono);font-size:12.5px}
+  .bubble code{font-family:var(--mono);font-size:12.5px;background:#0d1830;padding:1px 5px;border-radius:5px}
+  .bubble h3{margin:10px 0 4px;font-size:15px}
+  .bubble ul{margin:6px 0;padding-left:20px}
+  .composer{border-top:1px solid var(--line);padding:12px 16px;background:var(--panel)}
+  .composer textarea{width:100%;resize:none;min-height:46px;max-height:180px}
+  .composer .bar{display:flex;gap:8px;margin-top:8px;align-items:center}
+  .composer .bar .grow{flex:1}
+  .hint{color:var(--faint);font-size:11px}
+  /* activity */
+  .act .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--faint);padding:12px 16px 4px}
+  .ev{margin:6px 16px;padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel);font-size:12.5px}
+  .ev .k{color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px}
+  .ev.tool{border-color:var(--line2)}
+  .ev.verify.PASS{border-color:#265}.ev.verify.WARNING{border-color:#653}.ev.verify.BLOCK{border-color:#622}
+  .card{margin:8px 16px;border:1px solid var(--accent-deep);border-radius:10px;background:#0c1a26}
+  .card .hd{padding:10px 12px;border-bottom:1px solid var(--line2);font-weight:600;color:var(--accent)}
+  .card .bd{padding:10px 12px;color:var(--muted)}
+  .card .bd b{color:var(--text)}
+  .card .btns{display:flex;gap:8px;padding:0 12px 12px}
+  .card .btns button{flex:1}
+  .finding{margin:8px 16px;border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:8px;padding:10px 12px;background:var(--panel)}
+  .finding.HIGH,.finding.CRITICAL{border-left-color:var(--bad)}
+  .finding .sev{font-size:10.5px;font-weight:700;letter-spacing:.6px}
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tabs .tab{flex:1;text-align:center;padding:10px;color:var(--muted);cursor:pointer;font-size:12.5px}
+  .tabs .tab.active{color:var(--accent);border-bottom:2px solid var(--accent)}
+  .banner{padding:8px 16px;background:#2a1a08;color:var(--warn);font-size:12px;border-bottom:1px solid #653;display:none}
+  .empty{color:var(--faint);padding:16px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="col" id="sidebar">
+    <div class="brand"><span class="dot" id="conn"></span><b>Local Agent</b></div>
+    <div class="sect">
+      <button class="primary" style="width:100%" onclick="newChat()">+ New conversation</button>
+    </div>
+    <div class="sect">
+      <div class="lbl">Model</div>
+      <div class="row"><span>Status</span><span class="pill" id="mstatus">—</span></div>
+      <div class="row"><span>Name</span><b id="mname" style="font-size:12px">—</b></div>
+      <div class="row"><span>Device</span><b id="mdev" style="font-size:12px">—</b></div>
+    </div>
+    <div class="sect">
+      <div class="lbl">Session</div>
+      <div class="stack">
+        <select id="profile"></select>
+        <input id="targets" placeholder="targets (comma-sep, optional)">
+        <input id="objective" placeholder="objective" value="assess the authorized target">
+        <button onclick="startSession()">Start session</button>
+        <div class="row"><span>Active</span><b id="sess">none</b></div>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="lbl">System</div>
+      <div class="row"><span>Tools</span><b id="tcount">—</b></div>
+      <div class="row"><span>RAG</span><span class="pill" id="rag">—</span></div>
+      <div class="row"><span>Memory</span><span class="pill" id="mem">—</span></div>
+      <div class="row"><span>Verifier</span><span class="pill good">ready</span></div>
+      <div class="row"><span>Trust boundary</span><span class="pill good">ready</span></div>
+      <div class="row"><span>Kill switch</span><span class="pill" id="ks">—</span></div>
+    </div>
+    <div class="sect">
+      <div class="stack">
+        <button class="danger" onclick="killStop()">■ STOP (kill switch)</button>
+        <button class="ok" onclick="resumeKill()">▷ Resume (clear kill)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div class="col" style="overflow:hidden">
+    <div class="chat">
+      <div class="banner" id="stubBanner">⚠ STUB MODEL — replies are an echo, not a real model. Start on a GPU host for the real model.</div>
+      <div class="msgs" id="msgs">
+        <div class="empty" style="text-align:center;margin-top:20vh">Start a conversation with your local agent.<br>It reasons, proposes tools, and you approve them on the right.</div>
+      </div>
+      <div class="composer">
+        <textarea id="input" placeholder="Message the agent…  (Enter to send, Shift+Enter for newline)"></textarea>
+        <div class="bar">
+          <span class="hint grow" id="hint">idle</span>
+          <button id="stopBtn" class="danger" style="display:none" onclick="stopTurn()">Stop</button>
+          <button class="primary" id="sendBtn" onclick="send()">Send ▸</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVITY -->
+  <div class="col act">
+    <div class="tabs">
+      <div class="tab active" data-t="activity" onclick="tab('activity')">Activity</div>
+      <div class="tab" data-t="findings" onclick="tab('findings')">Findings</div>
+    </div>
+    <div id="tab-activity">
+      <div class="lbl">Live agent activity</div>
+      <div id="events"><div class="empty">Agent events appear here in real time.</div></div>
+    </div>
+    <div id="tab-findings" style="display:none">
+      <div class="lbl">Findings (hypotheses until validated)</div>
+      <div id="findings"><div class="empty">No findings yet.</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let ws, history = [], turnActive = false;
+
+/* ---------- safe markdown (escape first, then a tiny safe subset) ---------- */
+function esc(s){return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function md(t){
+  let s = esc(t);
+  s = s.replace(/```([\s\S]*?)```/g,(m,c)=>`<pre>${c.replace(/^\n/,"")}</pre>`);
+  s = s.replace(/`([^`]+)`/g,"<code>$1</code>");
+  s = s.replace(/^### (.*)$/gm,"<h3>$1</h3>");
+  s = s.replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
+  s = s.replace(/^\s*[-*] (.*)$/gm,"<li>$1</li>").replace(/(<li>[\s\S]*?<\/li>)/g,"<ul>$1</ul>");
+  s = s.replace(/\n{2,}/g,"<br><br>").replace(/\n/g,"<br>");
+  return s;
+}
+/* ---------- chat rendering ---------- */
+function addMsg(role, text){
+  const m = $("#msgs"); if(m.querySelector(".empty")) m.innerHTML="";
+  const el = document.createElement("div"); el.className="msg "+role;
+  el.innerHTML = `<div class="who">${role}</div><div class="bubble">${role==="user"?esc(text):md(text)}</div>`;
+  m.appendChild(el); m.scrollTop = m.scrollHeight; return el.querySelector(".bubble");
+}
+/* ---------- activity events ---------- */
+function ev(kind, html, cls=""){
+  const e = $("#events"); if(e.querySelector(".empty")) e.innerHTML="";
+  const el = document.createElement("div"); el.className="ev "+cls;
+  el.innerHTML = `<div class="k">${esc(kind)}</div>${html}`;
+  e.appendChild(el); e.scrollTop = e.scrollHeight; return el;
+}
+function toolCard(m){
+  const e = $("#events"); if(e.querySelector(".empty")) e.innerHTML="";
+  const el = document.createElement("div"); el.className="card"; el.id="ap-"+m.id;
+  el.innerHTML = `<div class="hd">TOOL PROPOSAL — waiting for approval</div>
+    <div class="bd">Tool: <b>${esc(m.tool)}</b>${m.target?`<br>Target: <b>${esc(m.target)}</b>`:""}
+      ${m.why?`<br>Why: ${esc(m.why)}`:""}</div>
+    <div class="btns"><button class="ok" onclick="approve('${m.id}',true)">Approve</button>
+      <button class="danger" onclick="approve('${m.id}',false)">Deny</button></div>`;
+  e.appendChild(el); e.scrollTop = e.scrollHeight;
+}
+function approve(id, ok){
+  ws.send(JSON.stringify({action: ok?"approve":"deny", id}));
+  const c = $("#ap-"+id); if(c){ c.querySelector(".hd").textContent = ok?"APPROVED":"DENIED";
+    c.querySelector(".btns").remove(); c.style.borderColor = ok?"#265":"#622"; }
+}
+function addFinding(f){
+  const e = $("#findings"); if(e.querySelector(".empty")) e.innerHTML="";
+  const el = document.createElement("div"); el.className="finding "+(f.severity||"");
+  el.innerHTML = `<div class="sev">${esc(f.severity||"")} · ${esc(f.status||"")}</div>
+    <b>${esc(f.title||"")}</b><div style="color:var(--muted);margin-top:4px">${esc(f.component||"")}</div>
+    ${f.next_test?`<div style="color:var(--faint);margin-top:6px">verify: ${esc(f.next_test)}</div>`:""}`;
+  e.appendChild(el);
+}
+/* ---------- websocket ---------- */
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = ()=>{ $("#conn").className="dot on"; };
+  ws.onclose= ()=>{ $("#conn").className="dot off"; setTimeout(connect,1500); };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+}
+let curBubble=null;
+function handle(m){
+  if(m.type==="thinking"){ curBubble=null; ev("thinking","Reasoning over your request…"); setBusy(true); }
+  else if(m.type==="telemetry"){
+    if(m.kind==="plan") ev("plan", md(m.text||""));
+    else if(m.kind==="proposal") ev("proposal", `Proposes <b>${esc(m.tool)}</b>`, "tool");
+    else if(m.kind==="authorization") ev("authorization", `${esc(m.tool)} → <b>${m.allowed?"approved":"declined"}</b>`);
+    else if(m.kind==="tool_result") ev("tool result", `<b>${esc(m.tool)}</b> → ${m.ok?"ok":"error"}<br><span style="color:var(--faint)">sha256 ${esc((m.output_sha256||"").slice(0,16))}…</span>`, "tool");
+    else if(m.kind==="interpretation") ev("interpret", md((m.text||"").slice(0,300)));
+    else if(m.kind==="verification") ev("verification", `<b>${esc(m.verdict)}</b>`, "verify "+m.verdict);
+    else if(m.kind==="report") ev("report", esc(m.summary||""));
+  }
+  else if(m.type==="approval_required") toolCard(m);
+  else if(m.type==="approval_timeout"){ const c=$("#ap-"+m.id); if(c) c.querySelector(".hd").textContent="TIMED OUT"; }
+  else if(m.type==="warning") ev("⚠ untrusted content", esc(m.reason||""), "verify WARNING");
+  else if(m.type==="blocked"){ ev("blocked", esc(m.reason||""), "verify BLOCK"); setBusy(false); }
+  else if(m.type==="session_stopped"){ ev("session stopped","kill switch engaged", "verify BLOCK"); setBusy(false); refresh(); }
+  else if(m.type==="error"){ addMsg("assistant","⚠ "+esc(m.reason||"error")); setBusy(false); }
+  else if(m.type==="completed"){
+    if(m.final){ addMsg("assistant", m.final); history.push({role:"assistant",content:m.final}); }
+    const v=m.verification; if(v) ev("verdict", `Verification <b>${esc(v.verdict)}</b>`, "verify "+v.verdict);
+    setBusy(false); refreshFindings();
+  }
+}
+function setBusy(b){ turnActive=b; $("#sendBtn").disabled=b; $("#stopBtn").style.display=b?"inline-block":"none";
+  $("#hint").textContent=b?"agent working…":"idle"; }
+/* ---------- actions ---------- */
+function send(){
+  const t=$("#input").value.trim(); if(!t||turnActive) return;
+  addMsg("user",t); history.push({role:"user",content:t}); $("#input").value="";
+  ws.send(JSON.stringify({action:"chat",prompt:t,history}));
+}
+function stopTurn(){ ws.send(JSON.stringify({action:"stop"})); }
+function newChat(){ history=[]; $("#msgs").innerHTML='<div class="empty" style="text-align:center;margin-top:20vh">New conversation.</div>'; $("#events").innerHTML='<div class="empty">Agent events appear here.</div>'; }
+function killStop(){ fetch("/api/session/stop",{method:"POST",headers:{'Content-Type':'application/json'},body:"{}"}).then(refresh); ws&&ws.send(JSON.stringify({action:"stop"})); }
+function resumeKill(){ fetch("/api/session/resume",{method:"POST"}).then(refresh); }
+async function startSession(){
+  const body={objective:$("#objective").value, profile:$("#profile").value,
+    targets:$("#targets").value.split(",").map(s=>s.trim()).filter(Boolean)};
+  const r=await (await fetch("/api/session/start",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  if(!r.ok) alert("Session: "+r.error); refresh();
+}
+function tab(t){ document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x.dataset.t===t));
+  $("#tab-activity").style.display=t==="activity"?"block":"none"; $("#tab-findings").style.display=t==="findings"?"block":"none"; }
+/* ---------- status polling ---------- */
+async function refresh(){
+  try{ const s=await (await fetch("/api/status")).json();
+    const ms=s.model.status; const p=$("#mstatus"); p.textContent=ms;
+    p.className="pill "+(ms==="ready"?"good":ms==="stub"?"warn":"bad");
+    $("#stubBanner").style.display = ms==="stub"?"block":"none";
+    $("#mname").textContent=s.model.model||"—"; $("#mdev").textContent=s.device.name||"—";
+    $("#tcount").textContent=s.tools;
+    $("#rag").textContent=s.rag; $("#rag").className="pill "+(s.rag==="ready"?"good":"warn");
+    $("#mem").textContent=s.memory; $("#mem").className="pill good";
+    $("#ks").textContent=s.kill_switch; $("#ks").className="pill "+(s.kill_switch==="clear"?"good":"bad");
+    $("#sess").textContent = s.session ? `${s.session.profile} · ${(s.session.targets||[]).join(",")||"local"}` : "none";
+  }catch(e){}
+}
+async function refreshFindings(){
+  try{ const f=(await (await fetch("/api/findings")).json()).findings||[];
+    if(f.length){ $("#findings").innerHTML=""; f.forEach(addFinding); } }catch(e){}
+}
+async function loadProfiles(){
+  const r=await (await fetch("/api/profiles")).json();
+  $("#profile").innerHTML=r.profiles.map(p=>`<option ${p===r.default?"selected":""}>${p}</option>`).join("");
+}
+$("#input").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }});
+connect(); loadProfiles(); refresh(); setInterval(refresh, 4000);
+</script>
+</body>
+</html>

@@ -72,3 +72,6 @@ mcp_layer/security_audit.log
 # runtime memory data (local only, never committed) + the at-rest encryption key
 memory/store_data.json
 memory/.memory_key
+
+# local UI runtime output — generated reports/conversations, never source
+data/webui/

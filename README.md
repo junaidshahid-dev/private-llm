@@ -204,6 +204,28 @@ with a real one.
 
 ---
 
+## Local UI — a browser workstation for the agent
+
+A localhost-only web interface to the agent, wired to the **real** stack — not a second
+implementation. Chat drives the real `run_session` loop; tool calls surface as Approve/Deny cards and
+run through the real controller only after you approve them; external text is sanitised by the trust
+boundary; results are hashed into the telemetry ledger (the live activity feed); every answer is
+graded by the verifier. No fake chatbot, no mock tools in the running app.
+
+```bash
+python start_local.py            # loads the real model on a GPU host; honest "gpu_required" on CPU
+python start_local.py --stub     # clearly-labelled echo model to click through the UI without a GPU
+```
+
+Then open `http://127.0.0.1:8000`. The one reuse point is the injectable `generate(messages)->str`
+seam that `run_session`/`run_assessment` already take, so the model code is unchanged. Binds
+`127.0.0.1` only; the backend is authoritative (approval and the kill switch are enforced server-side,
+tools stay gated by the session capability profile). Full documentation — architecture, security
+notes, troubleshooting — is in **[`README_LOCAL_UI.md`](README_LOCAL_UI.md)**. Verified by
+`tests/api/test_webui.py` (in the gate) and a live browser end-to-end run.
+
+---
+
 ## Honest limitations
 
 - **8K context.** Long documents go through RAG, not the prompt.
@@ -218,3 +240,6 @@ with a real one.
   accepted, but "declared MIT" is the accurate phrasing, not "ships an MIT licence".
 - **The tokenizer requires `trust_remote_code`**, which executes code from the model repo. The
   model itself no longer does.
+- **The local UI needs a GPU for the real model.** On a CPU laptop the model load is refused
+  honestly (`gpu_required`) and the UI runs against a clearly-labelled `--stub`; the real-model
+  conversation runs on a GPU host through the same lock seam.
