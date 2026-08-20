@@ -41,7 +41,7 @@ RESULT_CHARS = 1500        # trim each tool result fed back into the conversatio
 
 
 def run_session(question, generate, approver, *, config=None, policy_prompt="",
-                executor=None, verify_fn=None, max_rounds=MAX_ROUNDS) -> dict:
+                executor=None, verify_fn=None, max_rounds=MAX_ROUNDS, telemetry=None) -> dict:
     """Run the MULTI-ROUND loop: plan -> (approve -> execute)* -> observe -> ... -> verify.
 
     generate(messages) -> str : the model (Moonlight on GPU; scripted in tests).
@@ -61,6 +61,8 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
         config = perm.load_config()
     execute = executor or controller.execute_proposal
     verify_call = verify_fn or verify
+    if telemetry:
+        telemetry.instruction(question)
 
     messages = [{"role": "system", "content": controller.reasoning_system(config, policy_prompt)},
                 {"role": "user", "content": question}]
@@ -89,6 +91,8 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
         final_text = text
         if rnd == 1:
             record["analysis"] = text            # the first turn is the plan, for render/back-compat
+            if telemetry:
+                telemetry.plan(text)
         proposals = controller.parse_proposals(text)
         rrec = {"round": rnd, "text": text, "decisions": []}
         record["rounds"].append(rrec)
@@ -100,6 +104,13 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
         executed_blocks, any_executed = [], False
         for proposal in proposals:
             approved = approver(proposal) is True          # explicit human True, never model text
+            tgt = str((proposal.get("arguments") or {}).get("target")
+                      or (proposal.get("arguments") or {}).get("url") or "")
+            if telemetry:
+                telemetry.proposal(proposal.get("tool"), proposal.get("arguments", {}),
+                                   proposal.get("why", ""))
+                telemetry.authorization(proposal.get("tool"), tgt, approved,
+                                        "approved" if approved else "declined")
             decision = {"tool": proposal.get("tool"), "arguments": proposal.get("arguments", {}),
                         "why": proposal.get("why", ""), "kind": proposal.get("kind", "standard"),
                         "approved": approved}
@@ -113,6 +124,8 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
                 executed_blocks.append((proposal.get("tool"), result))
                 if result.get("ok"):
                     record["executed_tools"].append(proposal.get("tool"))
+                if telemetry:
+                    telemetry.tool_result(proposal.get("tool"), tgt, result.get("ok"), result)
                 any_executed = True
             rrec["decisions"].append(decision)
             record["decisions"].append(decision)
@@ -156,6 +169,11 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
     record["verification"] = {"verdict": report.verdict,
                               "findings": [str(f) for f in report.findings],
                               "next": report._NEXT[report.verdict]}
+    if telemetry:
+        if record.get("interpretation"):
+            telemetry.interpretation(record["interpretation"])
+        telemetry.verdict(report.verdict, [str(f) for f in report.findings])
+        record["telemetry"] = telemetry.chain()
     return record
 
 

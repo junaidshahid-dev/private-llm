@@ -225,6 +225,21 @@ def main() -> int:
           str(rec.get("escalated")))
     check("stopped after two no-gain rounds (did not run the third)", ex_calls["n"] == 2, str(ex_calls))
 
+    # ---- J. telemetry: the full audit chain is captured when a ledger is provided --------------
+    print("\nJ. telemetry chain captured end-to-end")
+    from mcp_layer.telemetry import Telemetry
+    tel = Telemetry("t1")
+    ex, _ = recording_executor()
+    rec = run_session("read the readme and summarise",
+                      scripted(f"{FS_PROPOSAL}", "The project is a private LLM."),
+                      approver=lambda p: True, executor=ex, telemetry=tel)
+    kinds = tel.kinds()
+    check("telemetry recorded the whole chain",
+          all(k in kinds for k in ("instruction", "plan", "proposal", "authorization",
+                                   "tool_result", "verification")), str(kinds))
+    check("the record exposes the telemetry chain",
+          isinstance(rec.get("telemetry"), list) and len(rec["telemetry"]) >= 6)
+
     print("\n" + "=" * 74)
     if fails:
         print(f"FAILED {len(fails)}: {', '.join(fails)}")
