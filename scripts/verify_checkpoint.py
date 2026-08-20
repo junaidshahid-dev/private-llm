@@ -45,6 +45,8 @@ PROMPTS = [
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", required=True)
+    ap.add_argument("--model", default=None,
+                    help="model lock/alias the adapter was trained on (default: the working base)")
     ap.add_argument("--max-new-tokens", type=int, default=128)
     args = ap.parse_args()
 
@@ -75,7 +77,8 @@ def main() -> int:
         return 1
 
     prov = json.load(open(os.path.join(ck, "run_manifest.json"), encoding="utf-8"))
-    lock = json.load(open(os.path.join(HERE, "MODEL_SPEC.lock.json"), encoding="utf-8"))
+    from serving.model_spec import load_lock          # match the base the adapter was trained on
+    lock = load_lock(args.model)
     check("manifest model revision matches lockfile",
           prov["model_revision"] == lock["revision"], prov["model_revision"][:12])
 

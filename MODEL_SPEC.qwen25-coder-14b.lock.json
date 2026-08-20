@@ -11,6 +11,13 @@
   "parameters": 14770033664,
   "context_length": 32768,
   "trust_remote_code_required": false,
+  "lora_targets_validated": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj"
+  ],
+  "lora_targets_note": "standard Qwen2 dense attention projections; unlike Moonlight's MLA, Qwen2 has all four (validate against the live module tree on first load)",
   "quantization": {
     "method": "bitsandbytes nf4",
     "double_quant": true,
