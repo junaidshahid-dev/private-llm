@@ -53,6 +53,7 @@ def use_remote(url: str, secret: str | None = None) -> dict:
     The UI, agent, tools, verifier and kill switch all still run locally; only the model inference is
     remote. This is how you run everything on your own machine but put the GPU on Kaggle."""
     import json
+    import urllib.error
     import urllib.request
     base = (url or "").rstrip("/")
     hdr = {"Content-Type": "application/json"}
@@ -72,8 +73,15 @@ def use_remote(url: str, secret: str | None = None) -> dict:
     def gen(messages, max_new=768):
         body = json.dumps({"messages": messages, "max_new": max_new}).encode()
         req = urllib.request.Request(base + "/generate", data=body, headers=hdr, method="POST")
-        with urllib.request.urlopen(req, timeout=300) as r:
-            return json.loads(r.read()).get("text", "")
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                return json.loads(r.read()).get("text", "")
+        except urllib.error.HTTPError as e:              # surface the server's real error, not a blank 500
+            try:
+                detail = json.loads(e.read() or b"{}").get("detail", "")
+            except Exception:                            # noqa: BLE001
+                detail = ""
+            raise RuntimeError(f"remote model error {e.code}: {detail or e.reason}")
 
     with _LOCK:
         _STATE.update(generate=gen, status="remote", model=(h.get("model") or "remote model"),
@@ -113,9 +121,14 @@ def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
             bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                      bnb_4bit_use_double_quant=q["double_quant"],
                                      bnb_4bit_compute_dtype=torch.float16)
+            # Spread across all GPUs when there's more than one (e.g. Kaggle T4 x2). A 14B model's
+            # weights (~10GB 4-bit) plus the attention buffer for a long system prompt do NOT fit on a
+            # single 15GB T4 — "balanced_low_0" keeps GPU 0 light so the forward-pass buffers have room.
+            ndev = torch.cuda.device_count()
+            device_map = "balanced_low_0" if ndev > 1 else {"": 0}
             model = AutoModelForCausalLM.from_pretrained(
-                lock["model"], revision=lock["revision"], quantization_config=bnb, device_map={"": 0})
-            label = lock["model"]
+                lock["model"], revision=lock["revision"], quantization_config=bnb, device_map=device_map)
+            label = lock["model"] + (f"  ({ndev}× {torch.cuda.get_device_name(0)})" if ndev > 1 else "")
             if adapter:
                 from peft import PeftModel
                 ad = adapter if os.path.isabs(adapter) else os.path.join(_REPO, adapter)

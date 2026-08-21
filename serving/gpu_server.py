@@ -29,6 +29,9 @@ import sys
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
+# reduce CUDA fragmentation before torch is imported (torch loads lazily inside webui.model.load)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 from fastapi import FastAPI, Header, HTTPException                            # noqa: E402
 
 app = FastAPI(title="LLM GPU inference server")
@@ -55,7 +58,12 @@ async def generate(body: dict, x_auth: str | None = Header(default=None)):
     messages = body.get("messages") or []
     if not isinstance(messages, list):
         raise HTTPException(status_code=400, detail="messages must be a list of {role, content}")
-    text = gen(messages, int(body.get("max_new", 768)))
+    try:
+        text = gen(messages, int(body.get("max_new", 768)))
+    except Exception as e:                               # surface the real cause, not a blank 500
+        import traceback
+        traceback.print_exc()                            # full traceback to the server log
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
     return {"text": text}
 
 
