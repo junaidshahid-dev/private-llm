@@ -121,18 +121,13 @@ def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
             bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                      bnb_4bit_use_double_quant=q["double_quant"],
                                      bnb_4bit_compute_dtype=torch.float16)
-            # Multi-GPU (e.g. Kaggle T4 x2): a 14B's ~10GB of 4-bit weights FIT on one 15GB T4, so
-            # "auto"/"balanced_low_0" consolidate them onto a single card — which then OOMs during the
-            # forward pass, because the attention buffer for the agent's long system prompt needs ~5GB
-            # more than the ~4.7GB left. Cap per-GPU memory to FORCE the weights to split, leaving
-            # ~9GB/GPU free for the forward-pass buffers.
+            # Multi-GPU (Kaggle T4 x2): use "balanced" (even ~5GB/GPU split) with NO max_memory cap.
+            # A too-low cap makes accelerate offload layers to DISK (the meta-device warning) — slow and
+            # unreliable. The 14B's ~10GB fits comfortably across 2×15GB, and an even split leaves ~10GB
+            # free per card for the forward pass. (With the compact tool prompt the model now even fits
+            # on a single T4, so the split is headroom, not a requirement.)
             ndev = torch.cuda.device_count()
-            if ndev > 1:
-                totgb = torch.cuda.get_device_properties(0).total_memory / 1e9
-                cap = max(5, int(totgb - 9))          # ~6GiB/GPU of weights on a 15GB T4; 9GB headroom
-                load_kw = dict(device_map="auto", max_memory={i: f"{cap}GiB" for i in range(ndev)})
-            else:
-                load_kw = dict(device_map={"": 0})
+            load_kw = dict(device_map="balanced") if ndev > 1 else dict(device_map={"": 0})
             model = AutoModelForCausalLM.from_pretrained(
                 lock["model"], revision=lock["revision"], quantization_config=bnb, **load_kw)
             label = lock["model"] + (f"  ({ndev}× {torch.cuda.get_device_name(0)})" if ndev > 1 else "")
