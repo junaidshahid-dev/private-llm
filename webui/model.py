@@ -121,13 +121,20 @@ def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
             bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                      bnb_4bit_use_double_quant=q["double_quant"],
                                      bnb_4bit_compute_dtype=torch.float16)
-            # Spread across all GPUs when there's more than one (e.g. Kaggle T4 x2). A 14B model's
-            # weights (~10GB 4-bit) plus the attention buffer for a long system prompt do NOT fit on a
-            # single 15GB T4 — "balanced_low_0" keeps GPU 0 light so the forward-pass buffers have room.
+            # Multi-GPU (e.g. Kaggle T4 x2): a 14B's ~10GB of 4-bit weights FIT on one 15GB T4, so
+            # "auto"/"balanced_low_0" consolidate them onto a single card — which then OOMs during the
+            # forward pass, because the attention buffer for the agent's long system prompt needs ~5GB
+            # more than the ~4.7GB left. Cap per-GPU memory to FORCE the weights to split, leaving
+            # ~9GB/GPU free for the forward-pass buffers.
             ndev = torch.cuda.device_count()
-            device_map = "balanced_low_0" if ndev > 1 else {"": 0}
+            if ndev > 1:
+                totgb = torch.cuda.get_device_properties(0).total_memory / 1e9
+                cap = max(5, int(totgb - 9))          # ~6GiB/GPU of weights on a 15GB T4; 9GB headroom
+                load_kw = dict(device_map="auto", max_memory={i: f"{cap}GiB" for i in range(ndev)})
+            else:
+                load_kw = dict(device_map={"": 0})
             model = AutoModelForCausalLM.from_pretrained(
-                lock["model"], revision=lock["revision"], quantization_config=bnb, device_map=device_map)
+                lock["model"], revision=lock["revision"], quantization_config=bnb, **load_kw)
             label = lock["model"] + (f"  ({ndev}× {torch.cuda.get_device_name(0)})" if ndev > 1 else "")
             if adapter:
                 from peft import PeftModel
