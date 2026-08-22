@@ -44,6 +44,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
+# reduce CUDA fragmentation before torch is imported (helps the loss-step spike on a 15GB T4)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 # ---------------------------------------------------------------------------------------------
 # SINGLE GPU, ENFORCED BEFORE TORCH IS IMPORTED.
 #

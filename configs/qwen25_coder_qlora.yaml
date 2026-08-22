@@ -12,7 +12,10 @@ model:
   # by train.py, so the one source of truth is MODEL_SPEC.qwen25-coder-14b.lock.json.
   name: Qwen/Qwen2.5-Coder-14B-Instruct
   trust_remote_code: false
-  max_seq_len: 1024                # every training example is < 200 tokens; 1024 leaves ample T4 room
+  # The longest example is 189 tokens (see data/processed/manifest.json), so 384 fits every example
+  # with margin and NOTHING is truncated — while 1024 padded each short example 5x and OOM'd the loss
+  # step (lm_head logits over vocab 152k) on a single 15GB T4. Raise only if longer data is added.
+  max_seq_len: 384
 
 quantization:
   load_in_4bit: true
