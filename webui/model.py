@@ -150,9 +150,14 @@ def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
             if tok.pad_token is None:
                 tok.pad_token = tok.eos_token
 
+            # With the weights split across GPUs, the embedding may live on a card other than cuda:0,
+            # so the input ids must go to the embedding's device (not a hardcoded 0), or index_select
+            # raises a device-mismatch. accelerate's hooks move activations across cards after that.
+            in_dev = model.get_input_embeddings().weight.device
+
             def gen(messages, max_new=768):
                 ids = tok.apply_chat_template(messages, add_generation_prompt=True,
-                                              return_tensors="pt").to(0)
+                                              return_tensors="pt").to(in_dev)
                 with torch.no_grad():
                     out = model.generate(ids, max_new_tokens=max_new, do_sample=False,
                                          pad_token_id=tok.pad_token_id)
