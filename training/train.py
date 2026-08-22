@@ -321,6 +321,18 @@ def main() -> int:
         r=lcfg["r"], lora_alpha=lcfg["alpha"], lora_dropout=lcfg["dropout"],
         bias=lcfg["bias"], task_type=lcfg["task_type"],
         target_modules=lcfg["target_modules"]))
+    # prepare_model_for_kbit_training upcasts every non-quantised param to fp32. For a 152k-vocab
+    # model the embeddings + lm_head are ~778M params EACH, so in fp32 they take ~6GB and OOM a 15GB
+    # T4 at the loss step. They are NOT trained (only the LoRA adapters are), so keep them in fp16 —
+    # frees ~3GB with no effect on adapter training (the loss still upcasts logits to fp32 itself).
+    n_cast = 0
+    for pname, p in model.named_parameters():
+        if ("embed_tokens" in pname or "lm_head" in pname) and p.dtype == torch.float32:
+            p.data = p.data.to(torch.float16)
+            n_cast += 1
+    if n_cast:
+        torch.cuda.empty_cache()
+        print(f"  cast {n_cast} embedding/lm_head tensor(s) fp32->fp16 to fit the T4")
     tr = sum(p.numel() for p in model.parameters() if p.requires_grad)
     al = sum(p.numel() for p in model.parameters())
     print(f"  trainable {tr:,} / {al:,} = {tr/al*100:.3f}%")
