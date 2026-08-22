@@ -78,8 +78,17 @@ SECURITY_METHODOLOGY = (
 
 
 def _available_tools_text() -> str:
-    """The real tool surface, so the model proposes listed tools instead of inventing one."""
-    return json.dumps(toolmod.schema() + secmod.schema() + webmod.schema(), indent=2)
+    """The real tool surface, COMPACT: one line per tool — name(args): description. Only what the
+    model needs to CHOOSE and CALL a tool. The rich-schema policy fields (read_only / side_effects /
+    required_binary / verification_method / capabilities) are enforced by the session-authorization
+    layer, not the model, so dumping the full JSON here just cost ~4.5k tokens (and, since attention
+    is quadratic in prompt length, several GB of VRAM) without changing which tool the model picks."""
+    lines = []
+    for e in toolmod.schema() + secmod.schema() + webmod.schema():
+        args = e.get("arguments") or {}
+        argsig = ", ".join(args.keys()) if isinstance(args, dict) else ""
+        lines.append(f'- {e["name"]}({argsig}): {(e.get("description") or "").strip()}')
+    return "\n".join(lines)
 
 
 def _environment_text(config) -> str:

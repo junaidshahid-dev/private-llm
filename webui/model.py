@@ -150,16 +150,6 @@ def load(model_alias: str | None = None, adapter: str | None = None) -> dict:
             if tok.pad_token is None:
                 tok.pad_token = tok.eos_token
 
-            # Force the MEMORY-EFFICIENT SDPA kernel. T4 (Turing) has no FlashAttention-2, and the
-            # default math kernel materialises the full seq×seq attention matrix — several GB for the
-            # agent's long system prompt, which OOMs a 15GB T4 even with the weights split. The
-            # mem-efficient kernel uses O(seq) memory instead. Keep math enabled as a last-resort.
-            try:
-                torch.backends.cuda.enable_flash_sdp(False)
-                torch.backends.cuda.enable_mem_efficient_sdp(True)
-                torch.backends.cuda.enable_math_sdp(False)
-            except Exception:                             # noqa: BLE001
-                pass
             # With the weights split across GPUs, the embedding may live on a card other than cuda:0,
             # so the input ids must go to the embedding's device (not a hardcoded 0), or index_select
             # raises a device-mismatch. accelerate's hooks move activations across cards after that.
