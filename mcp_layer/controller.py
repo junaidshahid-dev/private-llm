@@ -150,9 +150,33 @@ def plan(question, generate, config=None, policy_prompt="") -> dict:
     return {"analysis": analysis, "proposals": parse_proposals(analysis), "executed": False}
 
 
-def execute_proposal(proposal: dict, config=None, operator_ack: bool = False) -> dict:
+def _dry_run_result(proposal: dict, config: dict, tool: str) -> dict:
+    """A DRY-RUN outcome: the proposal is routed, validated and (for security tools) checked against
+    the authorized-target scope, but the tool is NOT executed. Lets you exercise the full agent loop
+    — dispatch, authorization, scope, audit — against an authorized lab without anything actually
+    running. This is a safety control (execution layer), not a model decision."""
+    args = (proposal or {}).get("arguments") or {}
+    if tool not in secmod.DISPATCH and tool not in webmod.DISPATCH and tool not in toolmod.DISPATCH:
+        return {"ok": False, "error": f"unknown tool {tool!r}"}
+    out = {"ok": True, "dry_run": True, "tool": tool, "arguments": args,
+           "note": "DRY RUN — routed and authorized but NOT executed (execution layer withheld it)"}
+    if tool in secmod.DISPATCH:                       # report the scope decision without running
+        tgt = str(args.get("target") or args.get("url") or "")
+        if tgt:
+            reg = (config.get("security_tools") or {}).get("authorized_targets")
+            ok_auth, why = secmod.target_authorized(tgt, reg)
+            out["authorized"], out["authorization"] = ok_auth, why
+        secmod.audit("dry_run", tool or "?", tgt, "would execute; withheld by dry_run")
+    return out
+
+
+def execute_proposal(proposal: dict, config=None, operator_ack: bool = False,
+                     dry_run: bool | None = None) -> dict:
     """OPERATOR-only. Runs one approved proposal. Refuses without an explicit operator ack, and is
-    OVERRIDDEN by the global kill switch — an engaged switch blocks execution even with a valid ack."""
+    OVERRIDDEN by the global kill switch — an engaged switch blocks execution even with a valid ack.
+
+    DRY RUN: if dry_run is True (or config['dry_run'] is set), the proposal is routed, authorized and
+    audited but the tool is NOT executed — for validating the loop against an authorized lab safely."""
     from mcp_layer import killswitch
     _p = proposal or {}
     blocked = killswitch.guard(tool=_p.get("tool", ""),
@@ -167,6 +191,8 @@ def execute_proposal(proposal: dict, config=None, operator_ack: bool = False) ->
     if config is None:
         config = perm.load_config()
     tool = (proposal or {}).get("tool")
+    if dry_run if dry_run is not None else bool(config.get("dry_run")):
+        return _dry_run_result(proposal, config, tool)
     if tool in secmod.DISPATCH:
         # reaching here IS the operator's explicit instruction, so confirm the security run
         return secmod.dispatch(proposal, config, confirmed=True)

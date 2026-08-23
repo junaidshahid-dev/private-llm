@@ -20,8 +20,10 @@ except (AttributeError, ValueError):
     pass
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
+os.environ["KILL_SWITCH_FILE"] = os.path.join(tempfile.mkdtemp(), ".KILL_SWITCH")  # isolate the switch
 
 from mcp_layer import security as sec                                         # noqa: E402
+from mcp_layer import controller, killswitch                                  # noqa: E402
 
 fails = []
 
@@ -171,6 +173,23 @@ def main() -> int:
     check("searchsploit denied when the group is disabled",
           not sec.searchsploit(disabled, "vsftpd")["ok"])
     check("searchsploit rejects an empty query", not sec.searchsploit(cfg, "")["ok"])
+
+    print("\n5f. dry-run mode — the loop runs but the execution layer withholds the tool")
+    killswitch.clear(operator_ack=True)
+    dr = controller.execute_proposal({"tool": "source_scan", "arguments": {"path": hp}}, cfg,
+                                     operator_ack=True, dry_run=True)
+    check("dry_run returns a dry_run result, not real tool output",
+          dr.get("dry_run") is True and dr["ok"] and "findings" not in dr)
+    dra = controller.execute_proposal({"tool": "nmap_scan", "arguments": {"target": "10.10.10.5"}},
+                                      cfg, operator_ack=True, dry_run=True)
+    check("dry_run on an authorized target reports authorized + does NOT execute",
+          dra.get("dry_run") is True and dra.get("authorized") is True)
+    drc = controller.execute_proposal({"tool": "nmap_scan", "arguments": {"target": "10.10.10.5"}},
+                                      {**cfg, "dry_run": True}, operator_ack=True)
+    check("config['dry_run'] enables dry-run globally", drc.get("dry_run") is True)
+    real = controller.execute_proposal({"tool": "source_scan", "arguments": {"path": hp}}, cfg,
+                                       operator_ack=True)
+    check("without dry_run the tool actually executes (no dry_run marker)", real.get("dry_run") is None)
 
     print("\n6. dispatch routes the new tools")
     check("dispatch runs hash_file",
