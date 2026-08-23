@@ -23,6 +23,7 @@ extra = [os.path.join(HERE, "evaluation", "development", "security_v3", "build_s
          os.path.join(HERE, "evaluation", "development", "security_v5", "build_secv5.py"),
          os.path.join(HERE, "evaluation", "pipeline_bench.py"),
          os.path.join(HERE, "evaluation", "tool_bench.py"),
+         os.path.join(HERE, "evaluation", "agent_eval.py"),
          os.path.join(HERE, "web", "benchmark.py"),
          os.path.join(HERE, "memory", "benchmark.py"),
          os.path.join(HERE, "tests", "api", "test_webui.py"),   # local-UI backend + E2E (test_ prefix)
