@@ -91,6 +91,46 @@ def _remediation(vuln_class: str) -> str:
     return _remediation_hint(vuln_class)
 
 
+def assessment_report_json(*, objective: str, scope, findings, operator: str = "operator",
+                           limitations=None) -> dict:
+    """The same graded assessment as assessment_report(), but as a machine-readable structure:
+    summary counts + per-finding severity/status/evidence/next-test/remediation/refs, ranked
+    confirmed-first then by severity. For programmatic use, diffing runs, and the UI findings view."""
+    findings = _order(list(findings))
+    by_status = {s: 0 for s in STATUS_ORDER}
+    by_sev = {s: 0 for s in SEVERITY}
+    for h in findings:
+        by_status[h.status] = by_status.get(h.status, 0) + 1
+        by_sev[h.severity] = by_sev.get(h.severity, 0) + 1
+    out = []
+    for i, h in enumerate(findings, 1):
+        out.append({
+            "rank": i, "title": h.title, "severity": h.severity,
+            "severity_asserted": not _validated(h),        # unvalidated severity is ASSERTED, not proven
+            "status": h.status, "affected_component": h.affected_component or None,
+            "vuln_class": h.vuln_class or None,
+            "evidence": [{"kind": e.kind, "detail": e.detail, "source": e.source,
+                          "confidence": e.confidence} for e in h.evidence],
+            "reasoning": h.why_it_matters or h.observation or None,
+            "validated": _validated(h),
+            "next_test": None if h.status == "CONFIRMED" else (h.next_test or "define a validating test"),
+            "impact": "demonstrated" if _validated(h) else "potential (pending validation)",
+            "remediation": _remediation(h.vuln_class), "references": _refs(h.vuln_class)})
+    return {
+        "objective": objective, "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "operator": operator,
+        "scope": list(scope) if scope else [],
+        "summary": {"total": len(findings), "confirmed": by_status.get("CONFIRMED", 0),
+                    "likely": by_status.get("LIKELY", 0),
+                    "unvalidated": by_status.get("POSSIBLE", 0) + by_status.get("UNCONFIRMED", 0),
+                    "by_status": {s: by_status[s] for s in STATUS_ORDER if by_status[s]},
+                    "by_severity": {s: by_sev[s] for s in SEVERITY if by_sev[s]}},
+        "findings": out,
+        "limitations": limitations or [
+            "Unvalidated findings are hypotheses; confirm with a validating test before relying on them.",
+            "Static-analysis findings are intraprocedural leads, not proof of exploitability.",
+            "Absence of a finding is not proof of absence of a vulnerability."]}
+
+
 def assessment_report(*, objective: str, scope, findings, methodology: str = "",
                       timeline=None, limitations=None, attack_surface=None,
                       operator: str = "operator") -> str:

@@ -15,7 +15,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
 from research.findings import Evidence, Hypothesis                             # noqa: E402
-from research.report import assessment_report, executive_summary, render_finding  # noqa: E402
+from research.report import (assessment_report, assessment_report_json,        # noqa: E402
+                             executive_summary, render_finding)
 
 fails = []
 
@@ -81,6 +82,26 @@ def main() -> int:
     check("empty findings -> a summary string", isinstance(executive_summary([]), str))
     check("empty report renders", "No findings." in assessment_report(
         objective="x", scope=[], findings=[]))
+
+    print("\n7. JSON report — machine-readable, same grading + ordering")
+    import json as _json
+    rj = assessment_report_json(objective="Assess the authorized lab web app",
+                                scope=["lab.local"], findings=findings)
+    check("summary counts 1 CONFIRMED of 3",
+          rj["summary"]["confirmed"] == 1 and rj["summary"]["total"] == 3)
+    check("findings ranked confirmed-first",
+          rj["findings"][0]["title"] == "Path traversal reads arbitrary files"
+          and rj["findings"][0]["status"] == "CONFIRMED")
+    check("confirmed severity is not ASSERTED; an unvalidated one is",
+          rj["findings"][0]["severity_asserted"] is False
+          and any(f["severity_asserted"] for f in rj["findings"] if f["status"] != "CONFIRMED"))
+    check("evidence is carried into the JSON with its source",
+          any(str(e["source"]).startswith("http_get") for e in rj["findings"][0]["evidence"]))
+    check("remediation + CWE references populated",
+          rj["findings"][0]["references"].startswith("CWE-22") and bool(rj["findings"][0]["remediation"]))
+    check("an unvalidated finding carries a next_test",
+          any(f["next_test"] for f in rj["findings"] if not f["validated"]))
+    check("the report is JSON-serializable", isinstance(_json.dumps(rj), str))
 
     print("\n" + "=" * 74)
     if fails:

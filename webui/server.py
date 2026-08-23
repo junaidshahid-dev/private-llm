@@ -228,19 +228,22 @@ def _collect_findings(record):
     if not record or not record.get("results"):
         return
     from serving.autonomous import _hyp_from_finding
-    from research.report import assessment_report
+    from research.report import assessment_report, assessment_report_json
     hyps = []
     for r in record["results"]:
         for f in ((r.get("result") or {}).get("findings") or []):
             hyps.append(_hyp_from_finding(f))
     if not hyps:
         return
+    scope = STATE["session"].targets if STATE.get("session") else []
+    rj = assessment_report_json(objective="chat assessment", scope=scope, findings=hyps)
     STATE["last_findings"] = [{"title": h.title, "severity": h.severity, "status": h.status,
                                "component": h.affected_component, "vuln_class": h.vuln_class,
                                "next_test": h.next_test} for h in hyps]
-    rep = assessment_report(objective="chat assessment",
-                            scope=(STATE["session"].targets if STATE["session"] else []),
-                            findings=hyps)
-    name = f"report_{time.strftime('%Y%m%d_%H%M%S')}.md"
-    with open(os.path.join(DATA, "reports", name), "w", encoding="utf-8") as f:
+    STATE["last_report_summary"] = rj["summary"]       # ranked/graded counts for the report
+    rep = assessment_report(objective="chat assessment", scope=scope, findings=hyps)
+    base = f"report_{time.strftime('%Y%m%d_%H%M%S')}"
+    with open(os.path.join(DATA, "reports", base + ".md"), "w", encoding="utf-8") as f:
         f.write(rep)
+    with open(os.path.join(DATA, "reports", base + ".json"), "w", encoding="utf-8") as f:
+        json.dump(rj, f, indent=2)
