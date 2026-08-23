@@ -166,6 +166,12 @@
   .finding .sev{font-size:9.5px;font-weight:700;letter-spacing:1.4px;color:var(--warn);text-transform:uppercase}
   .finding.HIGH .sev,.finding.CRITICAL .sev{color:var(--bad)}
   .finding b{color:#fff}
+  /* per-turn grouping in the activity feed */
+  .turn-sep{margin:18px 14px 2px;padding:9px 12px;border-radius:10px;display:flex;gap:9px;align-items:center;
+    background:linear-gradient(90deg,rgba(102,240,220,.14),transparent);border-left:3px solid var(--accent)}
+  .turn-sep:first-child{margin-top:8px}
+  .turn-n{font:700 10px/1 var(--mono);color:var(--accent-ink);background:var(--accent);border-radius:6px;padding:3px 7px;flex:none;letter-spacing:.5px}
+  .turn-q{font-size:12px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .empty{color:var(--faint);padding:20px;font-size:12.5px;line-height:1.7;text-align:center}
   .welcome{max-width:420px;margin:16vh auto 0;text-align:center;animation:rise .6s ease}
   .welcome .bigcore{width:66px;height:66px;margin:0 auto 22px;position:relative;filter:drop-shadow(0 0 18px rgba(102,240,220,.45))}
@@ -339,6 +345,14 @@ function addMsg(role, text){
   m.appendChild(el); m.scrollTop = m.scrollHeight; return el.querySelector(".bubble");
 }
 /* ---------- activity events ---------- */
+let turnNo = 0;
+function turnHeader(prompt){
+  const e = $("#events"); if(e.querySelector(".empty")) e.innerHTML="";
+  turnNo++;
+  const el = document.createElement("div"); el.className="turn-sep";
+  el.innerHTML = `<span class="turn-n">#${turnNo}</span><span class="turn-q">${esc(prompt.slice(0,90))}${prompt.length>90?"…":""}</span>`;
+  e.appendChild(el); e.scrollTop = e.scrollHeight;
+}
 function ev(kind, html, cls=""){
   const e = $("#events"); if(e.querySelector(".empty")) e.innerHTML="";
   const el = document.createElement("div"); el.className="ev "+cls;
@@ -406,10 +420,11 @@ function setBusy(b){ turnActive=b; $("#sendBtn").disabled=b; $("#stopBtn").style
 function send(){
   const t=$("#input").value.trim(); if(!t||turnActive) return;
   addMsg("user",t); history.push({role:"user",content:t}); $("#input").value="";
+  turnHeader(t);                                // group this turn's activity under a labelled header
   ws.send(JSON.stringify({action:"chat",prompt:t,history}));
 }
 function stopTurn(){ ws.send(JSON.stringify({action:"stop"})); }
-function newChat(){ history=[]; $("#msgs").innerHTML='<div class="welcome"><div class="bigcore"><div class="ring r1"></div><div class="ring r2"></div><div class="core"></div></div><h2>New conversation.</h2><p>The agent is listening. Ask it anything.</p></div>'; $("#events").innerHTML='<div class="empty">Agent events appear here.</div>'; }
+function newChat(){ history=[]; turnNo=0; $("#msgs").innerHTML='<div class="welcome"><div class="bigcore"><div class="ring r1"></div><div class="ring r2"></div><div class="core"></div></div><h2>New conversation.</h2><p>The agent is listening. Ask it anything.</p></div>'; $("#events").innerHTML='<div class="empty">Agent events appear here.</div>'; }
 function killStop(){ fetch("/api/session/stop",{method:"POST",headers:{'Content-Type':'application/json'},body:"{}"}).then(refresh); ws&&ws.send(JSON.stringify({action:"stop"})); }
 function resumeKill(){ fetch("/api/session/resume",{method:"POST"}).then(refresh); }
 async function startSession(){
