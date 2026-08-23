@@ -36,7 +36,10 @@ from verification.verify import verify
 
 import json                                                           # noqa: E402
 
-MAX_ROUNDS = 4              # cap the propose->run->observe->propose loop so it cannot spin forever
+MAX_ROUNDS = 8             # cap the propose->run->observe->propose loop; 8 lets a full workflow chain
+                           # (recon -> enumerate -> validate -> analyze) while still bounding the loop.
+                           # repeated-action / diminishing-returns detection ends it earlier when it
+                           # stops learning, so the cap is a ceiling, not the usual stopping point.
 RESULT_CHARS = 1500        # trim each tool result fed back into the conversation
 
 
@@ -141,11 +144,16 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
             break
         blocks = "\n\n".join(f"[{i + 1}] {t} -> {json.dumps(r)[:RESULT_CHARS]}"
                              for i, (t, r) in enumerate(executed_blocks))
+        ran_so_far = ", ".join(record["executed_tools"]) or "(none yet)"
         messages.append({"role": "user", "content":
-                         f"The operator ran your approved tool(s) and these are the REAL results:\n"
-                         f"{blocks}\n\nUse them. If a call errored, correct it and propose again. "
-                         "When you have enough to answer, give your final answer as plain text; "
-                         "otherwise propose the next tool."})
+                         f"The operator ran your approved tool(s); these are the REAL results "
+                         f"(round {rnd}/{max_rounds}; tools run so far: {ran_so_far}):\n{blocks}\n\n"
+                         "Integrate this as OBSERVED evidence — a result is a lead, not a proven "
+                         "conclusion. Then CHAIN the single highest-value next step toward the "
+                         "objective: if a call errored, correct it and re-propose; if a result opens a "
+                         "new lead, propose the next tool to pursue it; if you now have enough, give "
+                         "your final answer as plain text. Do not re-run a tool that already answered "
+                         "its question — progress the investigation."})
 
     # If we stopped while the model was still proposing (hit the round cap), ask for a final answer.
     if hit_cap:
