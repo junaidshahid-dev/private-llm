@@ -19,12 +19,13 @@ APPROVAL_TIMEOUT = 900          # seconds a proposal waits for the human before 
 class Turn:
     """One chat turn = one run_session over the real agent, with events + human approval."""
 
-    def __init__(self, question, generate, config, emit, history=None):
+    def __init__(self, question, generate, config, emit, history=None, memory_project=None):
         self.question = question
         self.generate = generate
         self.config = config
         self.emit = emit                              # emit(event: dict) -> None
         self.history = history or []
+        self.memory_project = memory_project or "private-llm"   # memory scope across investigations
         self.pending: dict = {}                       # approval_id -> {event, decision, proposal}
         self.record = None
 
@@ -73,8 +74,14 @@ class Turn:
         self.emit({"type": "thinking"})
         q = self._with_history(self.question)
         try:
+            from memory.store import MemoryStore    # recall prior findings + persist new ones
+            store = MemoryStore(project=self.memory_project)
+        except Exception:                            # noqa: BLE001 — memory is optional, never block chat
+            store = None
+        try:
             self.record = run_session(q, self.generate, approver=self._approver, config=self.config,
-                                      policy_prompt=system_prompt(), telemetry=tel)
+                                      policy_prompt=system_prompt(), telemetry=tel,
+                                      store=store, memory_project=self.memory_project)
         except Exception as e:                        # noqa: BLE001 — surface, never crash the server
             self.emit({"type": "error", "reason": f"{type(e).__name__}: {e}"})
             return {"final": "", "error": str(e)}

@@ -43,8 +43,26 @@ MAX_ROUNDS = 8             # cap the propose->run->observe->propose loop; 8 lets
 RESULT_CHARS = 1500        # trim each tool result fed back into the conversation
 
 
+def _persist_session_findings(store, project, record) -> dict:
+    """Persist this session's findings to memory so a future session on the same project builds on
+    them. Only title/status/severity/component — the store additionally REFUSES anything containing a
+    secret, so raw evidence never lands in memory."""
+    stored = 0
+    for r in record.get("results", []):
+        for f in ((r.get("result") or {}).get("findings") or []):
+            title = f.get("title") or f.get("vuln_class") or f.get("issue") or "finding"
+            status, sev = f.get("status", "POSSIBLE"), f.get("severity", "unknown")
+            comp = (f.get("affected_component") or f.get("component") or f.get("sink")
+                    or f.get("path") or "?")
+            res = store.add(f"{title} [{status}/{sev}] at {comp}", mtype="semantic",
+                            source="session", importance=0.6, project=project)
+            stored += 1 if res.get("ok") else 0
+    return {"project": project, "stored": stored}
+
+
 def run_session(question, generate, approver, *, config=None, policy_prompt="",
-                executor=None, verify_fn=None, max_rounds=MAX_ROUNDS, telemetry=None) -> dict:
+                executor=None, verify_fn=None, max_rounds=MAX_ROUNDS, telemetry=None,
+                store=None, memory_project=None) -> dict:
     """Run the MULTI-ROUND loop: plan -> (approve -> execute)* -> observe -> ... -> verify.
 
     generate(messages) -> str : the model (Moonlight on GPU; scripted in tests).
@@ -67,10 +85,24 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
     if telemetry:
         telemetry.instruction(question)
 
+    # RECALL prior investigation memory (best-effort — a memory error must never break the session).
+    user_content, recalled = question, ""
+    if store is not None:
+        try:
+            prior = store.search(question, project=memory_project, k=5)
+            recalled = store.context_block(prior) if prior else ""
+        except Exception:                            # noqa: BLE001
+            recalled = ""
+        if recalled:
+            user_content = (question + "\n\nPRIOR INVESTIGATION MEMORY (from earlier authorized "
+                            "sessions on this project — leads to build on; re-verify before relying "
+                            "on them):\n" + recalled)
+
     messages = [{"role": "system", "content": controller.reasoning_system(config, policy_prompt)},
-                {"role": "user", "content": question}]
+                {"role": "user", "content": user_content}]
     record = {"question": question, "analysis": "", "rounds": [], "proposals": [], "decisions": [],
-              "results": [], "interpretation": None, "verification": None, "executed_tools": []}
+              "results": [], "interpretation": None, "verification": None, "executed_tools": [],
+              "recalled_memory": bool(recalled)}
 
     from mcp_layer import killswitch
     from research.investigation import Investigation
@@ -182,6 +214,12 @@ def run_session(question, generate, approver, *, config=None, policy_prompt="",
             telemetry.interpretation(record["interpretation"])
         telemetry.verdict(report.verdict, [str(f) for f in report.findings])
         record["telemetry"] = telemetry.chain()
+    # PERSIST this session's findings so the next session on the same project recalls them.
+    if store is not None:
+        try:
+            record["memory"] = _persist_session_findings(store, memory_project, record)
+        except Exception as e:                       # noqa: BLE001 — best-effort, never fail the run
+            record["memory"] = {"error": f"{type(e).__name__}: {e}"}
     return record
 
 

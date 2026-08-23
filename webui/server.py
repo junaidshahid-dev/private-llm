@@ -195,7 +195,10 @@ async def ws(websocket: WebSocket):
                     await websocket.send_json({"type": "error",
                         "reason": st.get("reason") or "no model loaded (start with --stub or a GPU host)"})
                     continue
-                turn = Turn(msg.get("prompt", ""), gen, _config(), emit, history=msg.get("history"))
+                s = STATE.get("session")             # scope memory to the session's target
+                proj = (s.targets[0] if s and getattr(s, "targets", None) else "private-llm")
+                turn = Turn(msg.get("prompt", ""), gen, _config(), emit,
+                            history=msg.get("history"), memory_project=proj)
                 current["turn"] = turn
 
                 def _run(t=turn):
